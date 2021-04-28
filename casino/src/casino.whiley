@@ -167,7 +167,7 @@ ensures valid(out):
     casino.tx = tx
     return casino
 
-function call_updateTimeout(Casino casino, uint256 timeout, Message msg, Block block, Transaction tx) -> (Casino out)
+public function call_updateTimeout(Casino casino, uint256 timeout, Message msg, Block block, Transaction tx) -> (Casino out)
 requires valid(casino)
 requires validCall(casino, msg, block, tx)
 requires msg.sender == casino.operator
@@ -186,7 +186,7 @@ ensures out.timeout == timeout:
     casino.timeout = timeout
     return casino
 
-function call_addToPot(Casino casino, uint256 value, Message msg, Block block, Transaction tx) -> (Casino out)
+public function call_addToPot(Casino casino, uint256 value, Message msg, Block block, Transaction tx) -> (Casino out)
 requires valid(casino)
 requires validCall(casino, msg, block, tx)
 requires msg.sender == casino.operator
@@ -213,7 +213,7 @@ ensures valid(out):
 
     return casino
 
-function call_removeFromPot(Casino casino, uint256 value, Message msg, Block block, Transaction tx) -> (Casino out)
+public function call_removeFromPot(Casino casino, uint256 value, Message msg, Block block, Transaction tx) -> (Casino out)
 requires valid(casino)
 requires validCall(casino, msg, block, tx)
 requires msg.sender == casino.operator
@@ -244,7 +244,7 @@ ensures valid(out):
     (casino.msg.sender, casino.address) = transfer(casino.msg.sender, casino.address, value)
     return casino
 
-function call_createGame(Casino casino, uint256 secretNumber, Message msg, Block block, Transaction tx) -> (Casino out)
+public function call_createGame(Casino casino, uint256 secretNumber, Message msg, Block block, Transaction tx) -> (Casino out)
 requires validCall(casino, msg, block, tx)
 requires valid(casino)
 requires inState(casino, IDLE)
@@ -265,7 +265,7 @@ ensures valid(out):
     casino.state = GAME_AVAILABLE
     return casino
 
-function call_placeBet(Casino casino, uint256 value, Coin guess, Message msg, Block block, Transaction tx) -> (Casino out)
+public function call_placeBet(Casino casino, uint256 value, Coin guess, Message msg, Block block, Transaction tx) -> (Casino out)
 requires validCall(casino, msg, block, tx)
 requires valid(casino)
 requires inState(casino, GAME_AVAILABLE)
@@ -308,7 +308,7 @@ ensures valid(out):
     }
     return casino
 
-function call_decideBet(Casino casino, uint256 publicNumber, Message msg, Block block, Transaction tx) -> (Casino out)
+public function call_decideBet(Casino casino, uint256 publicNumber, Message msg, Block block, Transaction tx) -> (Casino out)
 requires validCall(casino, msg, block, tx)
 requires valid(casino)
 requires inState(casino, BET_PLACED)
@@ -352,7 +352,7 @@ ensures valid(out):
     casino.state = IDLE
     return casino
 
-function call_timeoutBet(Casino casino, Message msg, Block block, Transaction tx) -> (Casino out)
+public function call_timeoutBet(Casino casino, Message msg, Block block, Transaction tx) -> (Casino out)
 requires validCall(casino, msg, block, tx)
 requires inState(casino, BET_PLACED)
 requires block.timestamp - casino.wager.timestamp > casino.timeout
@@ -406,7 +406,7 @@ ensures valid(out):
     casino.wager.value = 0
     return casino
 
-function call_closeCasino(Casino casino, Message msg, Block block, Transaction tx) -> (Casino out)
+public function call_closeCasino(Casino casino, Message msg, Block block, Transaction tx) -> (Casino out)
 requires valid(casino)
 requires validCall(casino, msg, block, tx)
 requires inState(casino, IDLE)
