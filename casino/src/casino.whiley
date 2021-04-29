@@ -1,4 +1,3 @@
-
 public final int MAX256 = 115792089237316195423570985008687907853269984665640564039457584007913129639936 // 2^256
 public type uint256 is (int x) where x >= 0 && x < MAX256 
 
@@ -35,23 +34,23 @@ public type Transaction is {
     Address origin
 }
 
-type Coin is (int x) where x == 0 || x == 1
-final Coin HEADS = 0
-final Coin TAILS = 1
+public type Coin is (int x) where x == 0 || x == 1
+public final Coin HEADS = 0
+public final Coin TAILS = 1
 
-type State is (int x) where x == 0 || x == 1 || x == 2
-final State IDLE = 0
-final State GAME_AVAILABLE = 1
-final State BET_PLACED = 2 
+public type State is (int x) where x == 0 || x == 1 || x == 2
+public final State IDLE = 0
+public final State GAME_AVAILABLE = 1
+public final State BET_PLACED = 2 
 
-type Wager is {
+public type Wager is {
     uint256 value,
     Coin guess,
     uint256 timestamp
 }
 
 // main contract state class with all global variables
-type Casino is {
+public type Casino is {
     Address address,
     State state,
     Address operator,
@@ -66,7 +65,7 @@ type Casino is {
     bool destroyed
 }
 
-property valid(Casino casino)
+public property valid(Casino casino)
 where casino.state == BET_PLACED ==> casino.pot + casino.wager.value == casino.address.balance
 where casino.state != BET_PLACED ==> casino.pot == casino.address.balance
 where casino.operator.address != casino.address.address
@@ -129,19 +128,19 @@ ensures valid(out):
         destroyed: false
     }
 
-property costs(Casino casino, uint256 value)
+public property costs(Casino casino, uint256 value)
 where casino.msg.value == value
 
-property byOperator(Casino casino)
+public property byOperator(Casino casino)
 where casino.msg.sender == casino.operator
 
-property noActiveBet(Casino casino)
+public property noActiveBet(Casino casino)
 where casino.state == IDLE || casino.state == GAME_AVAILABLE
 
-property inState(Casino casino, State state)
+public property inState(Casino casino, State state)
 where casino.state == state
 
-property validCall(Casino casino, Message msg, Block block, Transaction tx)
+public property validCall(Casino casino, Message msg, Block block, Transaction tx)
 where msg.sender.address != casino.address.address
 where block.coinbase.address != casino.address.address
 where tx.origin.address != casino.address.address
