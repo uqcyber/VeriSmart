@@ -1,13 +1,16 @@
-public final int MAX256 = 115792089237316195423570985008687907853269984665640564039457584007913129639936 // 2^256
-public type uint256 is (int x) where x >= 0 && x < MAX256 
+import std::math
 
-// todo, not done in base implementation
-/*
+// public final int MAX256 = math::pow(2, 256)
+public final int MAX256 = 115792089237316195423570985008687907853269984665640564039457584007913129639936
+public type uint256 is (int x) where x >= 0 && x < MAX256 
+ 
+/* TODO: add this.  It was not used in base implementation.
 public function keccak256(uint256 in) -> (uint256 out):
     return 0 
 */
 
-public type uint160 is (int x) where x >= 0 && x < 1461501637330902918203684832716283019655932542976 // 2^160 - solidity addresses are 160-bit integers
+// 2**160 - solidity addresses are 160-bit integers
+public type uint160 is (int x) where x >= 0 && x < 1461501637330902918203684832716283019655932542976
 
 public type Address is {
     uint160 address, // should be immutable, unique
@@ -65,6 +68,7 @@ public type Casino is {
     bool destroyed
 }
 
+// TODO: make this an invariant of the Casino type.
 public property valid(Casino casino)
 where casino.state == BET_PLACED ==> casino.pot + casino.wager.value == casino.address.balance
 where casino.state != BET_PLACED ==> casino.pot == casino.address.balance
@@ -99,12 +103,6 @@ ensures receiver.address != msg.sender.address ==> (receiver_update.balance == r
 ensures receiver.address == msg.sender.address ==> (receiver_update.balance == sender_update.balance && receiver.balance == receiver_update.balance):
     (receiver, msg.sender) = transfer(receiver, msg.sender, msg.value)
     return (receiver, msg.sender)
-
-/*
-function require(bool b):
-    if(!b):
-        // error
-*/
 
 
 function init(uint160 contract_address, Message msg, Block block, Transaction tx) -> (Casino out)
