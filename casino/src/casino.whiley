@@ -67,9 +67,18 @@ public type Casino is {
     Transaction tx,
     bool destroyed
 }
+where state == BET_PLACED ==> pot + wager.value == address.balance
+where state != BET_PLACED ==> pot == address.balance
+where operator.address != address.address
+where player.address != address.address
+where msg.sender.address != address.address
+where block.coinbase.address != address.address
+where tx.origin.address != address.address
 
 // TODO: make this an invariant of the Casino type.
 public property valid(Casino casino)
+where true
+/*
 where casino.state == BET_PLACED ==> casino.pot + casino.wager.value == casino.address.balance
 where casino.state != BET_PLACED ==> casino.pot == casino.address.balance
 where casino.operator.address != casino.address.address
@@ -77,6 +86,7 @@ where casino.player.address != casino.address.address
 where casino.msg.sender.address != casino.address.address
 where casino.block.coinbase.address != casino.address.address
 where casino.tx.origin.address != casino.address.address
+*/
 
 // executed by address receiving the money which withdraws 'price' from the 'sender' address
 public function transfer(Address receiver, Address sender, uint256 price) -> (Address receiver_update, Address sender_update)
@@ -205,9 +215,10 @@ requires value <= casino.operator.balance
 requires casino.address.balance + value < MAX256
 ensures out.pot == casino.pot + value
 ensures valid(out):
-    (casino.address, casino.msg.sender) = payable(casino.address, casino.msg)
-    casino.pot = casino.pot + value
-
+    Address a1
+    Address a2
+    (a1, a2) = payable(casino.address, casino.msg)
+    casino.address, casino.msg.sender, casino.pot = a1, a2, casino.pot + value
     return casino
 
 public function call_removeFromPot(Casino casino, uint256 value, Message msg, Block block, Transaction tx) -> (Casino out)
@@ -237,8 +248,11 @@ ensures out.address.balance == casino.address.balance - value
 ensures valid(out):
     // the following line isn't in the paper's discussion of this transaction & really doesn't make sense & prevents sensible verification
     // (casino.address, casino.msg.sender) = payable(casino.address, casino.msg) 
-    casino.pot = casino.pot - value
-    (casino.msg.sender, casino.address) = transfer(casino.msg.sender, casino.address, value)
+    // casino.pot = casino.pot - value
+    Address a1
+    Address a2
+    (a1, a2) = transfer(casino.msg.sender, casino.address, value)
+    (casino.msg.sender, casino.address, casino.pot) = (a1, a2, casino.pot - value)
     return casino
 
 public function call_createGame(Casino casino, uint256 secretNumber, Message msg, Block block, Transaction tx) -> (Casino out)
@@ -295,14 +309,15 @@ ensures out.wager.value == value
 ensures out.wager.guess == guess
 ensures out.wager.timestamp == casino.block.timestamp
 ensures valid(out):
-    (casino.address, casino.msg.sender) = payable(casino.address, casino.msg)
-    casino.state = BET_PLACED
-    casino.player = casino.msg.sender
-    casino.wager = {
-        value: value,
-        guess: guess,
-        timestamp: casino.block.timestamp
-    }
+    Address a1
+    Address a2
+    (a1, a2) = payable(casino.address, casino.msg)
+    (casino.address, casino.msg.sender, casino.state, casino.player, casino.wager) = 
+        (a1, a2, BET_PLACED, casino.msg.sender, {
+		value: value,
+		guess: guess,
+		timestamp: casino.block.timestamp
+         })
     return casino
 
 public function call_decideBet(Casino casino, uint256 publicNumber, Message msg, Block block, Transaction tx) -> (Casino out)
@@ -388,9 +403,11 @@ ensures out.player.balance == casino.player.balance + casino.wager.value * 2
 ensures out.wager.value == 0
 ensures out.address.balance == casino.address.balance - casino.wager.value * 2
 ensures valid(out):
-    casino.pot = casino.pot - casino.wager.value
-    (casino.player, casino.address) = transfer(casino.player, casino.address, casino.wager.value * 2)
-    casino.wager.value = 0
+    Address a1
+    Address a2
+    (a1, a2) = transfer(casino.player, casino.address, casino.wager.value * 2)
+    (casino.player, casino.address, casino.pot, casino.wager.value) = 
+        (a1, a2, casino.pot - casino.wager.value, 0)
     return casino
 
 function operatorWins(Casino casino) -> (Casino out)
@@ -399,8 +416,7 @@ requires valid(casino)
 ensures out.pot == casino.pot + casino.wager.value
 ensures out.wager.value == 0
 ensures valid(out):
-    casino.pot = casino.pot + casino.wager.value
-    casino.wager.value = 0
+    (casino.pot, casino.wager.value) = (casino.pot + casino.wager.value, 0)
     return casino
 
 public function call_closeCasino(Casino casino, Message msg, Block block, Transaction tx) -> (Casino out)
@@ -411,7 +427,8 @@ requires msg.sender == casino.operator
 requires casino.operator.balance + casino.address.balance < MAX256
 ensures out.operator.balance == casino.operator.balance + casino.address.balance
 ensures out.address.balance == 0
-ensures out.destroyed:
+ensures out.destroyed
+ensures valid(casino):
     casino = updateBlockChainVariables(casino, msg, block, tx)
     casino = closeCasino(casino)
     return casino
@@ -423,7 +440,8 @@ requires byOperator(casino)
 requires casino.operator.balance + casino.address.balance < MAX256
 ensures out.operator.balance == casino.operator.balance + casino.address.balance
 ensures out.address.balance == 0
-ensures out.destroyed:
+ensures out.destroyed
+ensures valid(casino):
     Address operator_update
     (casino, operator_update) = selfdestruct(casino, casino.operator)
     casino.operator = operator_update
@@ -431,11 +449,18 @@ ensures out.destroyed:
     
 function selfdestruct(Casino casino, Address a) -> (Casino out, Address receiver)
 requires valid(casino)
+requires inState(casino, IDLE)
 requires casino.address.address != a.address
 requires a.balance + casino.address.balance < MAX256
+ensures receiver.address == a.address
 ensures receiver.balance == a.balance + casino.address.balance 
 ensures out.address.balance == 0
-ensures out.destroyed:
-    (a, casino.address) = transfer(a, casino.address, casino.address.balance)
-    casino.destroyed = true
-    return (casino, a)
+ensures out.address.address == casino.address.address
+ensures out.pot == 0
+ensures out.destroyed
+ensures valid(casino):
+    Address a2
+    Address ca
+    (a2, ca) = transfer(a, casino.address, casino.address.balance)
+    (casino.address, casino.destroyed, casino.pot) = (ca, true, 0)
+    return (casino, a2)
