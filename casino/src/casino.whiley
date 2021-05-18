@@ -75,18 +75,6 @@ where msg.sender.address != address.address
 where block.coinbase.address != address.address
 where tx.origin.address != address.address
 
-// TODO: make this an invariant of the Casino type.
-public property valid(Casino casino)
-where true
-/*
-where casino.state == BET_PLACED ==> casino.pot + casino.wager.value == casino.address.balance
-where casino.state != BET_PLACED ==> casino.pot == casino.address.balance
-where casino.operator.address != casino.address.address
-where casino.player.address != casino.address.address
-where casino.msg.sender.address != casino.address.address
-where casino.block.coinbase.address != casino.address.address
-where casino.tx.origin.address != casino.address.address
-*/
 
 // executed by address receiving the money which withdraws 'price' from the 'sender' address
 public function transfer(Address receiver, Address sender, uint256 price) -> (Address receiver_update, Address sender_update)
@@ -119,8 +107,7 @@ function init(uint160 contract_address, Message msg, Block block, Transaction tx
 requires contract_address != 0
 requires msg.sender.address != contract_address
 requires block.coinbase.address != contract_address
-requires tx.origin.address != contract_address
-ensures valid(out):
+requires tx.origin.address != contract_address:
     return {
         address: {address: contract_address, balance: 0},
         state: IDLE,
@@ -154,7 +141,6 @@ where block.coinbase.address != casino.address.address
 where tx.origin.address != casino.address.address
 
 function updateBlockChainVariables(Casino casino, Message msg, Block block, Transaction tx) -> (Casino out)
-requires valid(casino)
 requires validCall(casino, msg, block, tx)
 ensures casino.address == out.address
 ensures casino.state == out.state
@@ -167,54 +153,45 @@ ensures casino.wager == out.wager
 ensures casino.destroyed == out.destroyed
 ensures out.msg == msg
 ensures out.block == block
-ensures out.tx == tx
-ensures valid(out):
+ensures out.tx == tx:
     casino.msg = msg
     casino.block = block
     casino.tx = tx
     return casino
 
 public function call_updateTimeout(Casino casino, uint256 timeout, Message msg, Block block, Transaction tx) -> (Casino out)
-requires valid(casino)
 requires validCall(casino, msg, block, tx)
 requires msg.sender == casino.operator
-requires noActiveBet(casino)
-ensures valid(out):
+requires noActiveBet(casino):
     casino = updateBlockChainVariables(casino, msg, block, tx)
     casino = updateTimeout(casino, timeout)
     return casino
 
 function updateTimeout(Casino casino, uint256 timeout) -> (Casino out)
-requires valid(casino)
 requires byOperator(casino)
 requires noActiveBet(casino)
-ensures valid(out)
 ensures out.timeout == timeout:
     casino.timeout = timeout
     return casino
 
 public function call_addToPot(Casino casino, uint256 value, Message msg, Block block, Transaction tx) -> (Casino out)
-requires valid(casino)
 requires validCall(casino, msg, block, tx)
 requires msg.sender == casino.operator
 requires msg.value == value && value > 0
 requires value <= casino.operator.balance
 requires casino.address.balance + value < MAX256
-ensures out.pot == casino.pot + value
-ensures valid(out):
+ensures out.pot == casino.pot + value:
     casino = updateBlockChainVariables(casino, msg, block, tx)
     casino = addToPot(casino, value)
     return casino
 
 function addToPot(Casino casino, uint256 value) -> (Casino out)
-requires valid(casino)
 requires byOperator(casino)
 requires costs(casino, value)
 requires value > 0
 requires value <= casino.operator.balance
 requires casino.address.balance + value < MAX256
-ensures out.pot == casino.pot + value
-ensures valid(out):
+ensures out.pot == casino.pot + value:
     Address a1
     Address a2
     (a1, a2) = payable(casino.address, casino.msg)
@@ -222,7 +199,6 @@ ensures valid(out):
     return casino
 
 public function call_removeFromPot(Casino casino, uint256 value, Message msg, Block block, Transaction tx) -> (Casino out)
-requires valid(casino)
 requires validCall(casino, msg, block, tx)
 requires msg.sender == casino.operator
 requires noActiveBet(casino) 
@@ -230,22 +206,19 @@ requires value > 0 && value <= casino.pot
 requires msg.sender.balance + value < MAX256
 ensures out.pot == casino.pot - value
 ensures out.msg.sender.balance == msg.sender.balance + value
-ensures out.address.balance == casino.address.balance - value
-ensures valid(out):
+ensures out.address.balance == casino.address.balance - value:
     casino = updateBlockChainVariables(casino, msg, block, tx)
     casino = removeFromPot(casino, value)
     return casino
 
 function removeFromPot(Casino casino, uint256 value) -> (Casino out)
-requires valid(casino)
 requires byOperator(casino)
 requires noActiveBet(casino)
 requires value > 0 && value <= casino.pot
 requires casino.msg.sender.balance + value < MAX256
 ensures out.pot == casino.pot - value
 ensures out.msg.sender.balance == casino.msg.sender.balance + value
-ensures out.address.balance == casino.address.balance - value
-ensures valid(out):
+ensures out.address.balance == casino.address.balance - value:
     // the following line isn't in the paper's discussion of this transaction & really doesn't make sense & prevents sensible verification
     // (casino.address, casino.msg.sender) = payable(casino.address, casino.msg) 
     // casino.pot = casino.pot - value
@@ -257,35 +230,29 @@ ensures valid(out):
 
 public function call_createGame(Casino casino, uint256 secretNumber, Message msg, Block block, Transaction tx) -> (Casino out)
 requires validCall(casino, msg, block, tx)
-requires valid(casino)
 requires inState(casino, IDLE)
-requires msg.sender == casino.operator
-ensures valid(out):
+requires msg.sender == casino.operator:
     casino = updateBlockChainVariables(casino, msg, block, tx)
     casino = createGame(casino, secretNumber)
     return casino
 
 function createGame(Casino casino, uint256 secretNumber) -> (Casino out)
-requires valid(casino)
 requires byOperator(casino)
 requires inState(casino, IDLE)
 ensures out.secretNumber == secretNumber
-ensures out.state == GAME_AVAILABLE
-ensures valid(out): 
+ensures out.state == GAME_AVAILABLE:
     casino.secretNumber = secretNumber
     casino.state = GAME_AVAILABLE
     return casino
 
 public function call_placeBet(Casino casino, uint256 value, Coin guess, Message msg, Block block, Transaction tx) -> (Casino out)
 requires validCall(casino, msg, block, tx)
-requires valid(casino)
 requires inState(casino, GAME_AVAILABLE)
 requires msg.sender.address != casino.operator.address
 requires value > 0 && value <= casino.pot
 requires msg.value == value
 requires value <= msg.sender.balance
 requires casino.address.balance + value < MAX256
-ensures valid(out)
 ensures out.state == BET_PLACED
 ensures out.player.address == msg.sender.address
 ensures out.wager.value == value
@@ -296,7 +263,6 @@ ensures out.wager.timestamp == block.timestamp:
     return casino
 
 function placeBet(Casino casino, uint256 value, Coin guess) -> (Casino out)
-requires valid(casino)
 requires costs(casino, value)
 requires inState(casino, GAME_AVAILABLE)
 requires casino.msg.sender.address != casino.operator.address
@@ -307,8 +273,7 @@ ensures out.state == BET_PLACED
 ensures out.player.address == casino.msg.sender.address
 ensures out.wager.value == value
 ensures out.wager.guess == guess
-ensures out.wager.timestamp == casino.block.timestamp
-ensures valid(out):
+ensures out.wager.timestamp == casino.block.timestamp:
     Address a1
     Address a2
     (a1, a2) = payable(casino.address, casino.msg)
@@ -322,7 +287,6 @@ ensures valid(out):
 
 public function call_decideBet(Casino casino, uint256 publicNumber, Message msg, Block block, Transaction tx) -> (Casino out)
 requires validCall(casino, msg, block, tx)
-requires valid(casino)
 requires inState(casino, BET_PLACED)
 requires msg.sender == casino.operator
 requires (publicNumber % 2 == 0 <==> casino.wager.guess == HEADS) ==>
@@ -332,14 +296,12 @@ ensures (publicNumber % 2 == 0 <==> casino.wager.guess == HEADS) ==>
 (out.pot == casino.pot - casino.wager.value && out.address.balance == casino.address.balance - casino.wager.value * 2)
 ensures !(publicNumber % 2 == 0 <==> casino.wager.guess == HEADS) ==> out.pot == casino.pot + casino.wager.value
 ensures out.wager.value == 0
-ensures out.state == IDLE
-ensures valid(out):
+ensures out.state == IDLE:
     casino = updateBlockChainVariables(casino, msg, block, tx)
     casino = decideBet(casino, publicNumber)
     return casino
 
 function decideBet(Casino casino, uint256 publicNumber) -> (Casino out)
-requires valid(casino)
 requires byOperator(casino)
 requires inState(casino, BET_PLACED)
 requires (publicNumber % 2 == 0 <==> casino.wager.guess == HEADS) ==>
@@ -349,8 +311,7 @@ ensures (publicNumber % 2 == 0 <==> casino.wager.guess == HEADS) ==>
 (out.pot == casino.pot - casino.wager.value && out.address.balance == casino.address.balance - casino.wager.value * 2)
 ensures !(publicNumber % 2 == 0 <==> casino.wager.guess == HEADS) ==> out.pot == casino.pot + casino.wager.value
 ensures out.wager.value == 0
-ensures out.state == IDLE
-ensures valid(out):
+ensures out.state == IDLE:
     Coin secret
     if (publicNumber % 2 == 0):
         secret = HEADS
@@ -369,40 +330,34 @@ requires validCall(casino, msg, block, tx)
 requires inState(casino, BET_PLACED)
 requires block.timestamp - casino.wager.timestamp > casino.timeout
 requires msg.sender == casino.player
-requires valid(casino)
 requires casino.wager.value * 2 <= casino.address.balance
 requires casino.wager.value * 2 + casino.player.balance < MAX256
 ensures out.pot == casino.pot - casino.wager.value
-ensures out.state == IDLE
-ensures valid(out):
+ensures out.state == IDLE:
     casino = updateBlockChainVariables(casino, msg, block, tx)
     casino = timeoutBet(casino)
     return casino
 
 function timeoutBet(Casino casino) -> (Casino out)
-requires valid(casino)
 requires inState(casino, BET_PLACED)
 requires casino.msg.sender == casino.player
 requires casino.block.timestamp - casino.wager.timestamp > casino.timeout
 requires casino.wager.value * 2 <= casino.address.balance
 requires casino.wager.value * 2 + casino.player.balance < MAX256
 ensures out.pot == casino.pot - casino.wager.value
-ensures out.state == IDLE
-ensures valid(out):
+ensures out.state == IDLE:
     casino = playerWins(casino)
     casino.state = IDLE
     return casino
 
 function playerWins(Casino casino) -> (Casino out)
-requires valid(casino)
 requires inState(casino, BET_PLACED)
 requires casino.wager.value * 2 <= casino.address.balance
 requires casino.wager.value * 2 + casino.player.balance < MAX256
 ensures out.pot == casino.pot - casino.wager.value
 ensures out.player.balance == casino.player.balance + casino.wager.value * 2
 ensures out.wager.value == 0
-ensures out.address.balance == casino.address.balance - casino.wager.value * 2
-ensures valid(out):
+ensures out.address.balance == casino.address.balance - casino.wager.value * 2:
     Address a1
     Address a2
     (a1, a2) = transfer(casino.player, casino.address, casino.wager.value * 2)
@@ -412,43 +367,36 @@ ensures valid(out):
 
 function operatorWins(Casino casino) -> (Casino out)
 requires inState(casino, BET_PLACED)
-requires valid(casino)
 ensures out.pot == casino.pot + casino.wager.value
-ensures out.wager.value == 0
-ensures valid(out):
+ensures out.wager.value == 0:
     (casino.pot, casino.wager.value) = (casino.pot + casino.wager.value, 0)
     return casino
 
 public function call_closeCasino(Casino casino, Message msg, Block block, Transaction tx) -> (Casino out)
-requires valid(casino)
 requires validCall(casino, msg, block, tx)
 requires inState(casino, IDLE)
 requires msg.sender == casino.operator
 requires casino.operator.balance + casino.address.balance < MAX256
 ensures out.operator.balance == casino.operator.balance + casino.address.balance
 ensures out.address.balance == 0
-ensures out.destroyed
-ensures valid(casino):
+ensures out.destroyed:
     casino = updateBlockChainVariables(casino, msg, block, tx)
     casino = closeCasino(casino)
     return casino
 
 function closeCasino(Casino casino) -> (Casino out)
-requires valid(casino)
 requires inState(casino, IDLE)
 requires byOperator(casino)
 requires casino.operator.balance + casino.address.balance < MAX256
 ensures out.operator.balance == casino.operator.balance + casino.address.balance
 ensures out.address.balance == 0
-ensures out.destroyed
-ensures valid(casino):
+ensures out.destroyed:
     Address operator_update
     (casino, operator_update) = selfdestruct(casino, casino.operator)
     casino.operator = operator_update
     return casino
     
 function selfdestruct(Casino casino, Address a) -> (Casino out, Address receiver)
-requires valid(casino)
 requires inState(casino, IDLE)
 requires casino.address.address != a.address
 requires a.balance + casino.address.balance < MAX256
@@ -457,8 +405,7 @@ ensures receiver.balance == a.balance + casino.address.balance
 ensures out.address.balance == 0
 ensures out.address.address == casino.address.address
 ensures out.pot == 0
-ensures out.destroyed
-ensures valid(casino):
+ensures out.destroyed:
     Address a2
     Address ca
     (a2, ca) = transfer(a, casino.address, casino.address.balance)
