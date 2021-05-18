@@ -192,9 +192,7 @@ requires value > 0
 requires value <= casino.operator.balance
 requires casino.address.balance + value < MAX256
 ensures out.pot == casino.pot + value:
-    Address a1
-    Address a2
-    (a1, a2) = payable(casino.address, casino.msg)
+    (Address a1, Address a2) = payable(casino.address, casino.msg)
     casino.address, casino.msg.sender, casino.pot = a1, a2, casino.pot + value
     return casino
 
@@ -222,9 +220,7 @@ ensures out.address.balance == casino.address.balance - value:
     // the following line isn't in the paper's discussion of this transaction & really doesn't make sense & prevents sensible verification
     // (casino.address, casino.msg.sender) = payable(casino.address, casino.msg) 
     // casino.pot = casino.pot - value
-    Address a1
-    Address a2
-    (a1, a2) = transfer(casino.msg.sender, casino.address, value)
+    (Address a1, Address a2) = transfer(casino.msg.sender, casino.address, value)
     (casino.msg.sender, casino.address, casino.pot) = (a1, a2, casino.pot - value)
     return casino
 
@@ -274,9 +270,7 @@ ensures out.player.address == casino.msg.sender.address
 ensures out.wager.value == value
 ensures out.wager.guess == guess
 ensures out.wager.timestamp == casino.block.timestamp:
-    Address a1
-    Address a2
-    (a1, a2) = payable(casino.address, casino.msg)
+    (Address a1, Address a2) = payable(casino.address, casino.msg)
     (casino.address, casino.msg.sender, casino.state, casino.player, casino.wager) = 
         (a1, a2, BET_PLACED, casino.msg.sender, {
 		value: value,
@@ -358,9 +352,7 @@ ensures out.pot == casino.pot - casino.wager.value
 ensures out.player.balance == casino.player.balance + casino.wager.value * 2
 ensures out.wager.value == 0
 ensures out.address.balance == casino.address.balance - casino.wager.value * 2:
-    Address a1
-    Address a2
-    (a1, a2) = transfer(casino.player, casino.address, casino.wager.value * 2)
+    (Address a1, Address a2) = transfer(casino.player, casino.address, casino.wager.value * 2)
     (casino.player, casino.address, casino.pot, casino.wager.value) = 
         (a1, a2, casino.pot - casino.wager.value, 0)
     return casino
@@ -406,8 +398,6 @@ ensures out.address.balance == 0
 ensures out.address.address == casino.address.address
 ensures out.pot == 0
 ensures out.destroyed:
-    Address a2
-    Address ca
-    (a2, ca) = transfer(a, casino.address, casino.address.balance)
+    (Address a2, Address ca) = transfer(a, casino.address, casino.address.balance)
     (casino.address, casino.destroyed, casino.pot) = (ca, true, 0)
     return (casino, a2)
