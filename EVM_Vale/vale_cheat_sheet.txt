@@ -1,0 +1,57 @@
+### PROGRAMS AND PROCEDURES #######################################
+// This is calculated staticly during code generation to determine if INNER is included 
+inline if (b) { // b must not depend on runtime state
+    // INNER: executes if b is true
+}
+
+-Must use {:recursive} for recursion or name is not in scope
+-No mutual recursion
+-use 'let' to introduce ghost vars in body only
+-use 'lets' to introduce ghost vars for specification and body (based on initial state)
+-'let' and 'lets' are immutable ghost vars
+-'ghost var x:int := 22' for mutable ghost vars
+-use assert to give the verifier hints when using quantifiers (doing this might mean restructuring proof is better)
+-always remove assume statements from final product
+-'extern' allows procedure to be assumed to be proven
+-'assert by' and 'calc' for efficiently assisting proofs
+-{ghost code in curlies} when using calc
+-global variable alias with 'lets alias @= global'
+-'include{:fstar}{:open} fstar_module_name' to include fstar modules
+-'include{:fstar}{:open prefix} fstar_module_name' to include fstar modules and access through prefix 
+-EVERY fstar file needs a module declaration - use 'module A' 
+
+### TYPES #########################################################
+-'type char:Type(0) extern' imports types from the verification framework
+-fstar requires 'Type(0)', 'Type(1)', 'Type(2)' for generics
+-'prop' type exists for fstar, in Vale 'bool' is a subtype of 'prop'
+-'int_range(I1, _)' from integer 1 to infinity
+-'tuple(t1, ..., tn)'
+-'fun(t1, ..., tn) -> t0'
+-'state'('this' has type state), 'string', 'list(t)'(fstar only) must be declared 'type x ... extern' 
+-abbreviations with 'type x ... := ...' HOWEVER one must declare abbreviations in the fstar and dafny code manually aswell!!!
+-casting with '#t(e)' which casts exp e to type t
+-fstar dependent types included somehow MUST READ FSTAR DOCS
+-"Vale expressions have types, while procedure operands have operand types" - 'operand_type'
+-operand procedures for reading writing need suffix '_in' '_out'
+-use '@x' to refer to operand_types location. Must of been declared with '@ t' syntax
+-'in' 'inout' ??? as expected?
+-import functions and constants with 'function x ... extern'
+-polymorphic arguments with '#[...]'
+-'reveal f' to show opaque function f specification
+-'function operator(...) (params):return := ...'
+-'e is C' to test if instance e is of type C
+-lamda with 'fun(x1:t1, ..., xn:tn) e'
+-'forall(x1:t1, ..., xn:tn) e'
+-'exists(x1:t1, ..., xn:tn) e'
+-triggers help forall and exists - '{f(x,y)}' NEEDED FOR FSTAR UNLESS YOU WANT SLOW PROOFS AND TIMEOUTS
+-verbatim for FSTAR should can be written to the ftsi interface file via #verbatim{:interface} (Just go to grammar section...)
+-ghost procedures MUST start with lowercase letter
+
+### Vale ##########################################################
+-Vale generates names which will all star with va_
+-Possible to generate executable
+
+### 04/02/2022 Nikhik Swamy #######################################
+-Vale is a deep embedding of assembly language
+-"{:public}" attribute not listed in documentation
+-"{:typecheck} false" attribute not listed in documentation

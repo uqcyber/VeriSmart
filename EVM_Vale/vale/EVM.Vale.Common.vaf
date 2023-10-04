@@ -1,0 +1,139 @@
+
+include{:fstar}{:open} "EVM.Machine_Basic"
+include{:fstar}{:open} "EVM.Vale.Decls"
+include{:fstar}{:open} "FStar.Seq.Base"
+include{:fstar}{:open} "Keccak"
+
+module EVM.Vale.Common
+
+#verbatim{:interface}
+open FStar.Seq 
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+#endverbatim
+
+// Consider friend Decls here, see if verificaiton improves
+
+type option(a:Type(0)):Type(0) {:public} extern;
+
+var ok:bool        {:state ok()};
+var status:execStatus {:state status()};
+// Global state
+var bal: balances  {:state bal()};
+// Environment
+var value: nat256 {:state value()};
+var sender:address {:state sender()};
+var actor:address  {:state actor()};
+// Transaction state
+var timeStamp:nat256  {:state timeStamp()};
+// Execution state
+var stack:execStack {:state stk()}; 
+var stor:storage   {:state stor()};
+var mem :memory    {:state mem()};
+// Stack head
+var hdStkZero:nat     {:state hdStkZero()};
+// Return value
+var return_data:option(seq(nat256)) {:state returnData()};
+
+// Injected F* lemmas and functions
+#verbatim{:interface}
+(* Allowing any type here, but Vale pulls out as (seq nat) *) 
+let lemma_cons_tail_eq (nothing:unit): Lemma 
+  (requires True)
+  (ensures forall #a (x:a) (s:seq a). Seq.equal (tail (cons x s)) s)
+  = ()
+
+let lemma_stor_overwrite (nothing:unit) : Lemma
+  (requires True)
+  (ensures forall (ptr:nat256) (a:nat256) (b:nat256) (s:storage). Map.equal (store_stor ptr a s) (store_stor ptr a (store_stor ptr b s))) 
+  = ()
+
+let lemma_mem_overwrite (nothing:unit) : Lemma
+  (requires True)
+  (ensures forall (ptr:nat) (a:nat256) (b:nat256) (m:memory). Seq.equal (store_mem m ptr a) (store_mem (store_mem m ptr b) ptr a)) 
+  = ()
+
+let lemma_bal_overwrite (nothing:unit) : Lemma
+  (requires True)
+  (ensures forall (ptr:address) (x:nat256) (y:nat256) (b:balances). Map.equal (store_bal ptr x b) (store_bal ptr x (store_bal ptr y b))) 
+  = ()  
+
+let lemma_disjoint_stor (nothing:unit) : Lemma
+  (requires True)
+  (ensures forall (ptr1:nat256) (ptr2:nat256) (x:nat256) (y:nat256) (s:storage). ptr1 <> ptr2 ==> (Map.equal (store_stor ptr1  x  (store_stor ptr2  y  s)) (store_stor ptr2  y  (store_stor ptr1 x s))))
+  = ()    
+
+let lemma_stor_upd_overwrite (nothing:unit) : Lemma
+  (requires True)
+  (ensures forall (ptr:nat256) (a:nat256) (b:nat256) (s:storage). Map.equal (Map.upd s ptr a) (Map.upd (Map.upd s ptr b) ptr a)) 
+  = ()
+
+let option_is_none  (a:option (seq nat256)) : bool = a = None   
+let option_some_eq (a:option (seq nat256)) (b:(seq nat256)) : Type0 =  
+  match a with 
+    | Some c -> (Seq.equal c b)
+    | _      -> False
+#endverbatim
+
+// Functions and lemmas lifted from injected F* above and external files
+ghost procedure lemma_cons_tail_eq() {:public} extern;
+ghost procedure lemma_stor_overwrite() {:public} extern;
+ghost procedure  lemma_mem_overwrite() {:public} extern;
+ghost procedure  lemma_bal_overwrite() {:public} extern;
+ghost procedure  lemma_disjoint_stor() {:public} extern;
+ghost procedure lemma_stor_upd_overwrite() {:public} extern;
+
+function option_is_none (a:option(seq(nat256))):bool {:public} extern;
+function option_some_eq (a:option(seq(nat256)), b:(seq(nat256))):bool {:public} extern;
+
+function inactive_state_unchanged(s0:state, s1:state) : bool {:public} extern;
+
+function rem(s:execStack, n:nat):execStack {:public} extern;
+
+// Custom operators
+#token :: precedence + 
+#token ^= precedence = 
+#token \  precedence *
+function operator(::) (a:EVM.Machine_Basic.nat256, s:EVM.Machine_Basic.execStack):EVM.Machine_Basic.execStack {:public} := cns;
+function operator(^=) (s1:EVM.Machine_Basic.execStack, s2:EVM.Machine_Basic.execStack):bool {:public} := eql;
+function operator(\) (s:EVM.Machine_Basic.execStack, n:nat):EVM.Machine_Basic.execStack {:public} := rem;
+
+// Overloaded operators
+function operator([]) (s:EVM.Machine_Basic.execStack, n:nat):nat256 {:public} extern;
+function operator([ := ]) (s:EVM.Machine_Basic.execStack, n:nat, v:nat256):EVM.Machine_Basic.execStack {:public} extern;
+function operator([]) #[a:Type(0)] (s:FStar.Map.t(a, nat256), n:a):nat256 {:public} extern;
+function operator([ := ]) #[a:Type(0)] (s:FStar.Map.t(a, nat256), n:a, v:nat256):FStar.Map.t(a, nat256) {:public} extern;
+function operator([]) (s:FStar.Seq.Base.seq(nat256), n:nat):nat256 {:public} extern;
+function operator([ := ]) (s:FStar.Seq.Base.seq(nat256), n:nat, v:nat256):FStar.Seq.Base.seq(nat256) {:public} extern;
+
+#verbatim{:interface}
+let va_subscript_execStack = EVM.Machine_Basic.ind
+let va_update_EVM__Machine_Basic__execStack = EVM.Machine_Basic.updt
+let va_subscript_FStar__Map__t = FStar.Map.sel
+let va_update_FStar__Map__t  = FStar.Map.upd
+let va_subscript_FStar__Seq__Base__seq = EVM.Machine_Basic.load_mem
+let va_update_FStar__Seq__Base__seq = EVM.Machine_Basic.store_mem
+#endverbatim
+
+function length(m:memory):nat extern;
+
+// Sets the initial state, equivalent to contract creation. To be called at the very start of a program only.
+procedure InitialiseExecution()
+  {:public}
+  reads 
+    actor;
+  modifies
+    status;
+    stack;
+    mem;
+    stor;
+    bal;
+  ensures
+    status == ACTIVE;    
+    len(stack) == 0;
+    length(mem) == 0;
+    stor == init_storage(old(stor), 0);
+    bal == old(bal[actor := 0]); // We don't support depositing Ether with contract creation 
+{
+  assume false; // This is just to grant the postcondition to start from a valid position
+}

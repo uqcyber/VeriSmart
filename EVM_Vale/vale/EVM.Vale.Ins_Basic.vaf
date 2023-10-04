@@ -1,0 +1,693 @@
+include "EVM.Vale.Common.vaf"
+
+module EVM.Vale.Ins_Basic
+
+#verbatim{:interface}
+open FStar.Seq 
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.State
+open EVM.Vale.Common
+#endverbatim
+
+#verbatim
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+friend EVM.Vale.Decls
+module S = EVM.Semantics_s
+#reset-options "--initial_fuel 0 --initial_ifuel 0 --max_fuel 2 --max_ifuel 2 --z3rlimit 300" 
+//#reset-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300" 
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+// TODO ????
+#verbatim{:interface}
+let lemma__exec_equal_intro (s1:execStack) (s2:execStack) : Lemma
+  (requires s1 == s2)
+  (ensures EVM.Machine_Basic.eql s1 s2)
+  // [SMTPat (equal s1 s2)]
+  [SMTPat (s1 == s2)]
+  = ()
+
+let lemma_exec_equal_elim (s1:execStack) (s2:execStack) : Lemma
+  (requires EVM.Machine_Basic.eql s1 s2)
+  (ensures s1 == s2)
+  // [SMTPat (equal s1 s2)]
+  [SMTPat (s1 == s2)]
+  = ()
+#endverbatim
+
+procedure STOP()
+  {:public}
+  {:instruction Ins(S.Stop)}
+  modifies
+    status;
+    return_data;
+  ensures
+    old(status) == ACTIVE ==> status == END_VALID;
+    old(status) == ACTIVE ==> option_is_none(return_data);
+    old(status) != ACTIVE ==> status == old(status);
+    old(status) != ACTIVE ==> return_data == old(return_data);
+{
+}   
+
+// TODO: can we prove refinement by putting ADD_WRAP in body of this?
+
+
+procedure ADD()
+  {:public}
+  {:instruction Ins(S.Add)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires
+    status == ACTIVE ==> 1 < len(stack);
+    status == ACTIVE ==> stack[0] + stack[1] < pow2_256;
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old((stack\1)[0 := #nat256(stack[0] + stack[1])]) // Have to cast as precondition is not shortening bounds
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}
+
+#verbatim
+#reset-options "--z3cliopt smt.arith.nl=true"
+#endverbatim
+procedure MOD()
+  {:public}
+  {:instruction Ins(S.Mod)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> 1 < len(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old((if stack[1] = 0 then 0 else #nat256(stack[0] % #pos(stack[1]))) :: stack\2)
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}
+
+procedure MUL() // TODO UNSURE HOW TO CHECK THIS MANUALLY
+  {:public}
+  {:instruction Ins(S.Mul)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> 1 < len(stack); 
+    status == ACTIVE ==> 0 <= hd(stack) * ind(stack, 1) < pow2_256;
+  ensures 
+    old(status) == ACTIVE ==> (
+      len(stack) == len(old(stack)) - 1 &&
+      stack ^= old((#nat256(stack[0] * stack[1])) :: stack\2)
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}
+#verbatim
+#reset-options
+#endverbatim
+
+procedure SUB()
+  {:public}
+  {:instruction Ins(S.Sub)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> 1 < len(stack); 
+    status == ACTIVE ==> ind(stack,1) <= hd(stack);
+  ensures 
+    old(status) == ACTIVE ==> (
+      stack ^= old((#nat256(stack[0] - stack[1])) :: stack\2)
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}
+
+procedure LT()
+  {:public}
+  {:instruction Ins(S.Lt)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> 1 < len(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old((if stack[0] < stack[1] then 1 else 0) :: stack\2)
+    );  
+    inactive_state_unchanged(old(this), this);
+{   
+}       
+
+procedure GT()
+  {:public}
+  {:instruction Ins(S.Gt)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> 1 < len(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old((if stack[0] > stack[1] then 1 else 0) :: stack\2)
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}       
+
+procedure EQ()
+  {:public}
+  {:instruction Ins(S.Eq)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> 1 < len(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old((if stack[0] = stack[1] then 1 else 0) :: stack\2)
+    );
+    inactive_state_unchanged(old(this), this);
+{
+} 
+
+procedure ISZERO()
+  {:public}
+  {:instruction Ins(S.IsZero)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_empty(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack[0 := if stack[0] = 0 then 1 else 0])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+} 
+
+procedure KECCAK256()
+  {:public}
+  {:instruction Ins(S.Keccak256)}
+  reads
+    status;
+  modifies
+    stack;
+  requires 
+    status == ACTIVE ==> not_empty(stack);
+  ensures 
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack[0 := Keccak.keccak(stack[0])])
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}
+
+procedure ADDRESS()
+  {:public}
+  {:instruction Ins(S.Address)}
+  reads
+    actor;
+    status;
+  modifies
+    stack; 
+  requires 
+    status == ACTIVE ==> not_full(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(actor::stack)
+    );     
+    inactive_state_unchanged(old(this), this);
+{
+}    
+
+procedure BALANCE()
+  {:public}
+  {:instruction Ins(S.Balance)}
+  reads
+    bal;
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_empty(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack[0 := bal[stack[0] % pow2_160]])
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}         
+
+procedure CALLER() 
+  {:public} 
+  {:instruction Ins(S.Caller)}
+  reads
+    sender;
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_full(stack);
+  ensures 
+    old(status) == ACTIVE ==> (
+      stack ^= old(sender::stack)
+    );
+    inactive_state_unchanged(old(this), this);
+{    
+  lemma_cons_tail_eq();
+}
+
+procedure CALLVALUE() 
+  {:public} 
+  {:instruction Ins(S.CallValue)}
+  reads
+    value;
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_full(stack);
+  ensures 
+    old(status) == ACTIVE ==> (
+      stack ^= old(value::stack)
+    );  
+    inactive_state_unchanged(old(this), this);
+{    
+  lemma_cons_tail_eq();
+} 
+
+procedure TIMESTAMP() 
+  {:public} 
+  {:instruction Ins(S.TimeStamp)}
+  reads
+    timeStamp;
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_full(stack);
+  ensures 
+    old(status) == ACTIVE ==> (
+      stack ^= old(timeStamp::stack)
+    );  
+    inactive_state_unchanged(old(this), this);
+{    
+  lemma_cons_tail_eq();
+}  
+
+procedure SELFBALANCE() 
+  {:public} 
+  {:instruction Ins(S.SelfBalance)}
+  reads
+    status;
+    bal;
+    actor;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_full(stack);
+  ensures 
+    old(status) == ACTIVE ==> (
+      stack ^= old(bal[actor]::stack)
+    );  
+    inactive_state_unchanged(old(this), this);
+{    
+  lemma_cons_tail_eq();
+}  
+
+procedure POP()
+  {:public}
+  {:instruction Ins(S.Pop)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires
+    status == ACTIVE ==> not_empty(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack\1) 
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}
+
+procedure MLOAD()
+  {:public}
+  {:instruction Ins(S.MLoad)}
+  reads
+    mem;
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_empty(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack[0 := mem[stack[0]]])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}         
+
+// Performs an MLOAD but guarantees memory accessed was initialised
+procedure SafeMLoad()
+  {:public}
+  {:instruction Ins(S.MLoad)}
+  reads
+    mem;
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_empty(stack);
+    status == ACTIVE ==> old(stack[0] < length(mem));
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack[0 := mem[stack[0]]])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}         
+
+procedure MSTORE()
+  {:public}
+  {:instruction Ins(S.MStore)}
+  reads
+    status;
+  modifies
+    stack; 
+    mem;
+  requires  
+    status == ACTIVE ==> 1 < len(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack\2) &&
+      equal(mem, old(mem[stack[0] := stack[1]]))
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}       
+
+procedure SLOAD()
+  {:public}
+  {:instruction Ins(S.SLoad)}
+  reads
+    stor;
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> not_empty(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack[0 := stor[stack[0]]])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}   
+
+procedure SSTORE()
+  {:public}
+  {:instruction Ins(S.SStore)}
+  reads
+    status;
+  modifies
+    stack; 
+    stor;
+  requires  
+    status == ACTIVE ==> (1 < len(stack));
+  ensures
+    old(status) == ACTIVE ==> (
+      stack ^= old(stack\2) &&
+      stor == old(stor[stack[0] := stack[1]])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}   
+
+procedure PUSH(inline arg:nat256)
+  {:public} 
+  {:instruction Ins(S.Push(arg))}
+  reads
+    status;
+  modifies
+    stack; 
+  requires
+    status == ACTIVE ==> not_full(stack); 
+  ensures 
+    old(status) == ACTIVE ==> (
+      stack ^= old(arg::stack)
+    );
+    inactive_state_unchanged(old(this), this);
+{    
+  lemma_cons_tail_eq();
+}
+
+procedure RETURN()
+  {:public}
+  {:instruction Ins(S.Return)}
+  reads
+    mem;
+  modifies
+    status;
+    return_data;
+    stack;
+  requires 
+    status == ACTIVE ==> 1 < len(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      status == END_VALID &&
+      stack ^= old(stack\2) &&
+      (old(stack[0] + stack[1] <= length(mem)) ==> option_some_eq(return_data, old(slice(mem, stack[0], stack[0] + stack[1])))) &&
+      (old(length(mem) <= stack[0]) ==> option_some_eq(return_data, old(create(stack[1], 0)))) &&
+      (old(stack[0] < length(mem) < stack[0] + stack[1]) ==> option_some_eq(return_data, old(append(slice(mem, stack[0], length(mem)), create(#nat(stack[1] - (length(mem) - stack[0])), 0)))))
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}    
+
+// Performs RETURN but guarantees data returned was initialised
+procedure Safe_Return()
+  {:public}
+  {:instruction Ins(S.Return)}
+  reads
+    mem;
+  modifies
+    status;
+    return_data;
+    stack;
+  requires 
+    status == ACTIVE ==> 1 < len(stack);
+    status == ACTIVE ==> stack[0] + stack[1] <= length(mem);
+  ensures
+    old(status) == ACTIVE ==> (
+      status == END_VALID &&
+      stack ^= old(stack\2) &&
+      option_some_eq(return_data, old(slice(mem, stack[0], stack[0] + stack[1])))
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}    
+
+#verbatim
+#reset-options "--z3cliopt smt.arith.nl=true"
+#endverbatim
+procedure CALL()
+  {:public}
+  {:instruction Ins(S.Call)}
+  reads
+    status;
+    actor;
+  modifies
+    stack;
+    bal;
+  requires 
+    status == ACTIVE ==> 1 < len(stack);
+    status == ACTIVE ==> bal[stack[0] % pow2_160] + stack[1] < pow2_256; // Overflow check on balance transfer
+  ensures
+    old(status) == ACTIVE && old(stack[1]) <= old(bal)[actor] ==> ( // TODO: Debug why old turns nats to ints here
+      stack ^= old(1::stack\2) &&
+      bal == old(bal) [actor := #nat256(old(bal)[actor] - old(stack[1]))] [old(stack[0] % pow2_160) := old((bal[stack[0] % pow2_160] + stack[1]) % pow2_256)] // TODO FIGURE OUT IF THIS SHOULD WRAP
+    );
+    old(status) == ACTIVE && load_bal(actor, old(bal)) < old(stack[1]) ==> (
+      stack ^= old(0 :: stack\2) &&
+      bal == old(bal)
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}    
+#verbatim
+#reset-options
+#endverbatim
+
+procedure REVERT()
+  {:public}
+  {:instruction Ins(S.Revert)}
+  reads
+    mem;
+  requires 
+    status == ACTIVE ==> 1 < len(stack);
+  modifies
+    stack; 
+    status;
+    return_data;
+  ensures
+    old(status) == ACTIVE ==> (
+      status == END_INVALID &&
+      stack ^= old(stack\2) &&
+      (old(stack[0] + stack[1] <= length(mem)) ==> option_some_eq(return_data, old(slice(mem, stack[0], stack[0] + stack[1])))) &&
+      (old(length(mem) <= stack[0]) ==> option_some_eq(return_data, old(create(stack[1], 0)))) &&
+      (old(stack[0] < length(mem) < stack[0] + stack[1]) ==> option_some_eq(return_data, old(append(slice(mem, stack[0], length(mem)), create(#nat(stack[1] - (length(mem) - stack[0])), 0)))))
+    );   
+    inactive_state_unchanged(old(this), this);
+{
+}         
+
+// Performs REVERT but guarantees data returned was initialised
+procedure SafeRevert()
+  {:public}
+  {:instruction Ins(S.Revert)}
+  reads
+    mem;
+  requires 
+    status == ACTIVE ==> 1 < len(stack);
+    status == ACTIVE ==> stack[0] + stack[1] <= length(mem);
+  modifies
+    stack; 
+    status;
+    return_data;
+  ensures
+    old(status) == ACTIVE ==> (
+      status == END_INVALID &&
+      stack ^= old(stack\2) &&
+      option_some_eq(return_data, old(slice(mem, stack[0], stack[0] + stack[1])))
+    );   
+    inactive_state_unchanged(old(this), this);
+{
+}         
+
+procedure INVALID()
+  {:public}
+  {:instruction Ins(S.Invalid)}
+  reads
+    stack;
+  modifies
+    status;
+    return_data;
+  ensures
+    old(status) == ACTIVE ==> (
+      option_is_none(return_data) &&
+      status == END_INVALID
+    );   
+    inactive_state_unchanged(old(this), this);
+{
+}        
+
+#verbatim
+#reset-options "--z3cliopt smt.arith.nl=true"
+#endverbatim
+procedure SELFDESTRUCT()
+  {:public}
+  {:instruction Ins(S.SelfDestruct)}
+  reads
+    actor;
+  modifies
+    return_data;
+    status;
+    stack;
+    bal;
+  requires 
+    status == ACTIVE ==> not_empty(stack);
+    status == ACTIVE ==> bal[actor] + bal[stack[0] % pow2_160] < pow2_256;
+  ensures
+    old(status) == ACTIVE ==> (
+      status == END_SELFDESTRUCT &&
+      stack ^= old(stack\1) &&
+      bal == old(bal [actor := 0] [stack[0] % pow2_160 := (bal[actor] + bal[stack[0] % pow2_160]) % pow2_256]) && // TODO SHOULD THIS WRAP?
+      option_is_none(return_data)
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}   
+
+procedure ADD_WRAP()
+  {:public}
+  {:instruction Ins(S.Add)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires
+    status == ACTIVE ==> 1 < len(stack);
+  ensures
+    old(status) == ACTIVE ==> (
+      if old(stack[0] + stack[1] < pow2_256) 
+      then 
+        stack ^= old((stack\1)[0 := #nat256(stack[0] + stack[1])])
+      else 
+        stack ^= old((stack\1)[0 := (stack[0] + stack[1]) % pow2_256])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+}
+
+procedure MUL_WRAP()
+  {:public}
+  {:instruction Ins(S.Mul)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> 1 < len(stack); 
+  ensures 
+    old(status) == ACTIVE ==> (
+      len(stack) == len(old(stack)) - 1 &&
+      stack ^= old(((stack[0] * stack[1]) % pow2_256) :: stack\2)
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}
+
+procedure SUB_WRAP()
+  {:public}
+  {:instruction Ins(S.Sub)}
+  reads
+    status;
+  modifies
+    stack; 
+  requires  
+    status == ACTIVE ==> 1 < len(stack); 
+  ensures 
+    old(status) == ACTIVE ==> (
+      if old(stack[1] <= stack[0])
+      then
+        stack ^= old(#nat256(stack[0] - stack[1]) :: stack\2)
+      else 
+        stack ^= old(((stack[0] - stack[1]) % pow2_256) :: stack\2)
+    );  
+    inactive_state_unchanged(old(this), this);
+{
+}
+#verbatim
+#reset-options
+#endverbatim

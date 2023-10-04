@@ -1,0 +1,185 @@
+include "EVM.Vale.Common.vaf"
+include "EVM.Vale.Ins_Basic.vaf"
+include "EVM.Vale.Ins_SwapDup.vaf"
+
+module SafeMath
+
+#verbatim{:interface}{:implementation}
+open FStar.Seq 
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.Vale.Common
+open EVM.Vale.Ins_Basic
+open EVM.Vale.Ins_SwapDup
+open EVM.State
+#endverbatim
+
+#verbatim{:implementation}
+friend EVM.Vale.Decls 
+#reset-options "--initial_fuel 0 --initial_ifuel 0 --max_fuel 2 --max_ifuel 2 --z3rlimit 300" 
+// #reset-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300" // Unsure if these are what I want
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+// =======================================================================================
+// SAFE MATH =============================================================================
+// ======================================================================================= 
+
+// Duplicates the top two elements on the stack, and checks for overflow for addition
+procedure DupAndCompare()
+  reads 
+    hdStkZero;
+  modifies
+    status;
+    stack;
+  requires
+    status == ACTIVE ==> 1 < len(stack);  
+    status == ACTIVE ==> len(stack) < 1021;
+  ensures 
+    old(status) == ACTIVE && old(((pow2_256-1)-stack[0]) < stack[1]) ==> (
+      status == ACTIVE &&
+      stack ^= old(1::stack) &&
+      ((pow2_256-1)-stack[1]) < stack[2]
+    );
+    old(status) == ACTIVE && old(stack[1] <= ((pow2_256-1)-stack[0])) ==> (
+      status == ACTIVE &&
+      stack ^= old(0::stack) &&
+      stack[2] <= ((pow2_256-1)-stack[1])
+    );
+    old(status) == ACTIVE && stack[0] == 1 ==> (
+      old(((pow2_256-1)-stack[0]) < stack[1]) &&
+      ((pow2_256-1)-stack[1]) < stack[2]
+    );
+    old(status) == ACTIVE && stack[0] == 0 ==> (
+      old(stack[1] <= ((pow2_256-1)-stack[0])) &&
+      stack[2] <= ((pow2_256-1)-stack[1])
+    );
+    inactive_state_unchanged(old(this), this);  
+{
+
+                                                         // [v0,v1]
+  DoubleDUP2();                                          // [v0,v1,v0,v1]
+  // assert old(status) == ACTIVE ==> (
+  //   status == ACTIVE &&
+  //   stack ^= old(stack[0]::(stack[1]::stack))
+  // );
+  // assert inactive_state_unchanged(old(this), this);
+  PUSH(pow2_256 - 1);                                    // [MAX_INT,v0,v1,v0,v1]
+  // assert old(status) == ACTIVE ==> (
+  //   status == ACTIVE &&
+  //   stack ^= old((pow2_256-1)::(stack[0]::(stack[1]::stack)))
+  // );
+  // assert inactive_state_unchanged(old(this), this);
+  SUB();                                                 // [(MAX_INT-v0),v1,v0,v1] 
+  // assert old(status) == ACTIVE ==> (
+  //   status == ACTIVE &&
+  //   stack ^= old(((pow2_256-1)-stack[0])::(stack[1]::stack))
+  // );
+  // assert inactive_state_unchanged(old(this), this);
+  LT();                                                  // [if (MAX_INT-v0) < v1 then 1 else 0,v0,v1] 
+}   
+
+procedure SafeAdd()
+  {:public}
+  reads 
+    hdStkZero;
+  modifies
+    status;
+    stack;
+    return_data;
+  requires
+    status == ACTIVE ==> 1 < len(stack);  
+    status == ACTIVE ==> len(stack) < 1021;
+  ensures 
+    old(status) == ACTIVE && old(stack[0] + stack[1] < pow2_256) ==> (
+      status == ACTIVE &&
+      stack ^= old(#nat256(stack[0] + stack[1])::stack\2)
+    );
+    old(status) == ACTIVE && old(pow2_256 <= stack[0] + stack[1]) ==> (
+      status == END_INVALID &&
+      option_is_none(return_data)
+    );
+    inactive_state_unchanged(old(this), this);  
+{
+  DupAndCompare();
+  // assert old(status) == ACTIVE && old(pow2_256 <= stack[0] + stack[1])  ==> (
+  //   status == ACTIVE &&
+  //   stack ^= old(1::stack) &&
+  //   ((pow2_256-1)-stack[1]) < stack[2]
+  // );
+  // assert old(status) == ACTIVE && old(stack[0] + stack[1] < pow2_256)  ==> (
+  //   status == ACTIVE &&
+  //   stack ^= old(0::stack) &&
+  //   stack[2] <= ((pow2_256-1)-stack[1])
+  // );
+  // assert inactive_state_unchanged(old(this), this);
+  if (hdStkZero == 0) {
+    // assert old(status) == ACTIVE ==> (
+    //   status == ACTIVE &&
+    //   stack ^= old(stack) &&
+    //   old(pow2_256 <= stack [0] + stack[1]) &&
+    //   pow2_256 <= stack [0] + stack[1] 
+    // );
+    // assert inactive_state_unchanged(old(this), this);
+    INVALID();
+    // assert old(status) == ACTIVE ==> (
+    //   status == END_INVALID &&
+    //   option_is_none(return_data)
+    // );
+    // assert inactive_state_unchanged(old(this), this);
+  }
+  // assert old(status) == ACTIVE && old(pow2_256 <= stack[0] + stack[1]) ==> (
+  //   status == END_INVALID &&
+  //   option_is_none(return_data)
+  // );
+  // assert old(status) == ACTIVE && old(stack[0] + stack[1] < pow2_256) ==> (
+  //   status == ACTIVE &&
+  //   stack ^= old(stack) &&
+  //   stack[0] + stack[1] < pow2_256
+  // );
+  // assert inactive_state_unchanged(old(this), this);
+  ADD();
+}   
+
+// #verbatim
+// #restart-solver
+// #push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+// #endverbatim
+
+procedure SafeSub()
+  {:public}
+  reads
+    hdStkZero;
+  modifies
+    status;
+    stack;
+    return_data;
+  requires
+    status == ACTIVE ==> 1 < len(stack);
+    status == ACTIVE ==> len(old(stack)) < 1023;
+  ensures
+    old(status) == ACTIVE && old(stack[1]) <= old(stack[0]) ==> (
+      status == ACTIVE &&
+      stack ^= old(#nat256(stack[0] - stack[1]) :: stack\2) &&
+      return_data == old(return_data)
+    );
+    old(status) == ACTIVE && old(stack[0]) < old(stack[1])==> (
+      status == END_INVALID &&
+      option_is_none(return_data)
+    );
+    inactive_state_unchanged(old(this), this);
+{
+                // [v0,v1] // (WTS v0 >= v1) <==> !(v0 < v1)
+  DUP2();       // [v1,v0,v1]
+  DUP2();       // [v0,v1,v0,v1] 
+  LT();         // [if v0 < v1 then 1 else 0,v0,v1]
+  if (hdStkZero == 0) { // [v0,v1]
+    INVALID();
+  } 
+  else {   // [v0,v1]
+    SUB(); // [v0 - v1]
+  }
+} 

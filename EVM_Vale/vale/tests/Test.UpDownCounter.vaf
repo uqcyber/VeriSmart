@@ -1,0 +1,277 @@
+include "../EVM.Vale.Common.vaf"
+include "../EVM.Vale.Ins_Basic.vaf"
+include "../SafeMath.vaf"
+
+module Test.UpDownCounter
+
+#verbatim{:interface}{:implementation}
+open FStar.Seq 
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.Vale.Common
+open EVM.Vale.Ins_Basic
+open EVM.State
+open SafeMath
+#endverbatim
+
+#verbatim{:implementation}
+friend EVM.Vale.Decls 
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+#verbatim
+#restart-solver
+// #push-options "--initial_fuel 2 --initial_ifuel 2 --max_fuel 2 --max_ifuel 2 --z3rlimit 300" 
+#push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+#endverbatim
+
+procedure CounterConstructor(inline count:nat256, inline dir:nat256)
+  {:public}
+  reads
+    status;
+  modifies
+    stack; 
+    stor;
+  requires
+    status == ACTIVE ==> len(stack) < 1023; 
+  ensures
+    stack ^= old(stack);
+    old(status) == ACTIVE ==> (
+      stor == old(stor[0 := count][1 := dir])
+    );
+    inactive_state_unchanged(old(this), this);
+{ 
+  lemma_cons_tail_eq();
+  PUSH(count);
+  PUSH(0);
+  SSTORE();
+  PUSH(dir);
+  PUSH(1);
+  SSTORE();
+}
+
+procedure SetDirection(inline dir:nat256)
+  {:public}
+  reads
+    status;
+  modifies
+    stack;
+    stor;
+  requires
+    status == ACTIVE ==> len(stack) < 1023; 
+  ensures
+    stack ^= old(stack);
+    old(status) == ACTIVE ==> (
+      stor == old(stor[1 := dir])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+  lemma_cons_tail_eq();
+  PUSH(dir);
+  PUSH(1);
+  SSTORE();
+}
+
+#verbatim
+#restart-solver
+#push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --max_ifuel 60 --z3rlimit 300" 
+#endverbatim
+
+procedure IncrementCounter()
+  {:public}
+  lets 
+    old_count := old(stor[0]); 
+  reads
+    status;
+  modifies
+    stack; 
+    stor;
+  requires
+    status == ACTIVE ==> len(stack) < 1023; 
+    status == ACTIVE ==> old_count + 1 < pow2_256;
+  ensures 
+    stack ^= old(stack);
+    old(status) == ACTIVE ==> (
+      stor == old(stor[0 := #nat256(old_count + 1)])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+  lemma_cons_tail_eq();
+
+  PUSH(0);
+  SLOAD();  // retrieve count from storage  [..., s0]
+  PUSH(1);  // Push 1 to stack              [..., s0, 1]
+  ADD();    // Add top elements of stack    [..., (s0+1)]
+  PUSH(0);  
+  SSTORE(); // Place back in storage        [...]
+}
+
+// #verbatim
+// #restart-solver
+// #push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+// #endverbatim
+
+procedure IncrementCounterSafe()
+  {:public}
+  lets 
+    old_count := old(stor[0]);
+    count     := stor[0];
+  reads
+    hdStkZero;
+  modifies
+    status;
+    stack; 
+    stor;
+    return_data;
+  requires
+    status == ACTIVE ==> len(stack) < 1019; 
+  ensures 
+    old(status) == ACTIVE && old_count < pow2_256 - 1 ==> (
+      status == ACTIVE &&
+      stack ^= old(stack) && 
+      stor == old(stor[0 := #nat256(old_count + 1)]) &&
+      old(stor[0]) < stor[0]  // Using ghost variables here made this fail
+    );
+    old(status) == ACTIVE && old_count == pow2_256 - 1 ==> (
+      status == END_INVALID &&
+      option_is_none(return_data)
+    );
+    inactive_state_unchanged(old(this), this);
+{
+  lemma_cons_tail_eq();
+
+  PUSH(0);
+  SLOAD();                                  // retrieve count from storage  [..., s1]
+  PUSH(1);                                  // Push 1 to stack              [..., s1, 1]
+  SafeAdd();                                // Add top elements of stack    [..., (s1+1)]
+  PUSH(0);
+  SSTORE();                                 // Place back in storage        [...]
+}
+
+// // #verbatim
+// // #restart-solver
+// // #push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+// // #endverbatim
+
+procedure DecrementCounter()
+  {:public}
+  reads
+    status;
+  modifies
+    stack; 
+    stor;
+  requires
+    status == ACTIVE ==> len(stack) < 1023; 
+    status == ACTIVE ==> stor[0] != 0;
+  ensures 
+    stack ^= old(stack);
+    old(status) == ACTIVE ==> (
+      stor == old(stor[0 := #nat256(stor[0] - 1)])
+    );
+    inactive_state_unchanged(old(this), this);
+{
+  lemma_cons_tail_eq();
+
+  PUSH(1);  // Push 1 to stack              [..., 1]
+  PUSH(0);
+  SLOAD();  // retrieve count from storage  [..., 1, s0]
+  SUB();    // Sub top elements of stack    [..., (s0-1)]
+  PUSH(0);  
+  SSTORE(); // Place back in storage        [...]
+}
+
+procedure DecrementCounterSafe()
+  {:public}
+  reads
+    hdStkZero;
+  modifies
+    status;
+    stack; 
+    stor;
+    return_data;
+  requires
+    status == ACTIVE ==> len(stack) < 1021; 
+  ensures 
+    old(status) == ACTIVE && old(stor[0]) != 0 ==> (
+      status == ACTIVE &&
+      stack ^= old(stack) && 
+      stor == old(stor[0 := #nat256(stor[0] - 1)]) &&
+      stor[0] < old(stor[0])
+    );
+    old(status) == ACTIVE && old(stor[0]) == 0 ==> (
+      status == END_INVALID &&
+      option_is_none(return_data) 
+    );
+    inactive_state_unchanged(old(this), this);
+{
+  lemma_cons_tail_eq();
+
+  PUSH(1);  // Push 1 to stack              [..., 1]
+  PUSH(0);
+  SLOAD();  // retrieve count from storage  [..., 1, s0]
+  SafeSub();    // Sub top elements of stack    [..., (s0-1)]
+  PUSH(0);  
+  SSTORE(); // Place back in storage        [...]
+}
+
+#verbatim
+#restart-solver
+#push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+#endverbatim
+
+procedure IncrementDecrementCountSafe()
+  {:public}
+  lets
+    old_count := old(stor[0]); 
+    dir := old(stor[1]); 
+  reads 
+    hdStkZero;
+  modifies
+    status;
+    stack; 
+    stor;
+    mem;
+    return_data;
+  requires
+    status == ACTIVE ==> len(stack) < 1019;
+  ensures 
+    // Direction is up, count is less than MAX_INT, increment count 
+    old(status) == ACTIVE && dir != 0 && old_count < pow2_256 - 1 ==> (
+      status == ACTIVE &&
+      stack ^= old(stack) &&
+      stor == old(stor[0 := #nat256(old_count + 1)]) &&
+      equal(mem, old(mem)) &&
+      old(stor[0]) < stor[0]
+    );
+    // Direction is up, count is MAX_INT, revert 
+    old(status) == ACTIVE && dir != 0 && old_count == pow2_256 - 1 ==> (
+      status == END_INVALID &&
+      option_is_none(return_data)
+    );
+    // Direction is down and count is not zero, decrement count
+    old(status) == ACTIVE && dir == 0 && old_count != 0 ==> (
+      status == ACTIVE &&
+      stack ^= old(stack) &&
+      stor == old(stor[0 := #nat256(old_count - 1)]) &&
+      equal(mem, old(mem))
+    );
+    // Direction is down and count is zero, revert
+    old(status) == ACTIVE && dir == 0 && old_count == 0 ==> (
+      status == END_INVALID &&
+      option_is_none(return_data)
+    );
+    inactive_state_unchanged(old(this), this);
+{
+  lemma_cons_tail_eq();
+
+  PUSH(1);
+  SLOAD(); // pushes dir onto stack
+  if (hdStkZero == 0) {
+    IncrementCounterSafe();
+  } else { // dir is zero, therefore check if we can decrement
+    DecrementCounterSafe();
+  }
+}

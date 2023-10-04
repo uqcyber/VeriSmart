@@ -1,0 +1,150 @@
+include "../EVM.Vale.Ins_Basic.vaf"
+include "../EVM.Vale.Common.vaf"
+include "EVM.Vale.Tools.vaf"
+
+module EVM.Vale.Overflow
+
+#verbatim{:interface}{:implementation}
+open FStar.Seq 
+open FStar.Seq.Base
+open FStar.Seq.Properties
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.Vale.Ins_Basic
+open EVM.Vale.Tools
+open EVM.Vale.Common
+open EVM.State
+#endverbatim
+
+#verbatim{:implementation}
+friend EVM.Vale.Decls // THIS IS CRITICAL TO REASONING!
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+
+procedure Compare()
+  {:public}
+  reads 
+    hdStkZero;
+  modifies
+    status;
+    stack;
+  requires
+    status == ACTIVE ==> 1 < len(stack);  
+    status == ACTIVE ==> len(stack) < 1024;
+  ensures 
+    old(status == ACTIVE && ((pow2_256-1)-stack[0]) < stack[1]) ==> (
+      status == ACTIVE &&
+      stack ^= old(1::stack\2)
+    );
+    old(status == ACTIVE && stack[1] <= ((pow2_256-1)-stack[0])) ==> (
+      status == ACTIVE &&
+      stack ^= old(0::stack\2)
+    );
+    old(status) == ACTIVE && stack[0] == 1 ==> (
+      old(((pow2_256-1)-stack[0]) < stack[1])
+    );
+    old(status) == ACTIVE && stack[0] == 0 ==> (
+      old(stack[1] <= ((pow2_256-1)-stack[0]))
+    );
+    inactive_state_unchanged(old(this), this);  
+{
+
+    lemma_cons_tail_eq();
+    assert inactive_state_unchanged(old(this), this);
+    PUSH(pow2_256 - 1);  
+    assert old(status) == ACTIVE ==> (
+        status == ACTIVE &&
+        stack ^= old((pow2_256-1)::stack)
+    );
+    assert inactive_state_unchanged(old(this), this);
+    SUB();                
+    assert old(status) == ACTIVE ==> (
+        status == ACTIVE &&
+        stack ^= old(((pow2_256-1)-stack[0])::(stack\1))
+    );
+    assert inactive_state_unchanged(old(this), this);
+    LT();                 
+    assert old(status) == ACTIVE && old(((pow2_256-1)-stack[0]) < stack[1])  ==> (
+        status == ACTIVE &&
+        stack ^= old(1::stack\2) 
+    );
+    assert old(status) == ACTIVE && stack[0] == 1 ==> (
+        old(((pow2_256-1)-stack[0]) < stack[1])
+    );
+    assert old(status == ACTIVE && stack[1] <= ((pow2_256-1)-stack[0]))  ==> (
+        status == ACTIVE &&
+        stack ^= old(0::stack\2) 
+    );
+    assert old(status) == ACTIVE ==> (
+        stack[0] == 1 || stack[0] == 0
+    );
+    assert old(status) == ACTIVE && stack[0] == 0 ==> (
+        old(stack[1] <= ((pow2_256-1)-stack[0])) 
+    );
+    assert inactive_state_unchanged(old(this), this);
+}   
+
+
+
+procedure overflowCheck()
+    {:public}
+    reads 
+        hdStkZero;
+    modifies
+        status;
+        stack;
+        return_data;
+    requires
+        status == ACTIVE ==> 1 < len(stack);  
+        status == ACTIVE ==> len(stack) < 1024;
+    ensures 
+        old(status) == ACTIVE && old(stack[0] + stack[1] < pow2_256) ==> (
+            status == ACTIVE &&
+            stack ^= old(stack\2) &&
+            return_data == old(return_data)
+        );
+        old(status) == ACTIVE && old(pow2_256 <= stack[0] + stack[1]) ==> (
+            status == END_INVALID &&
+            stack ^= old(stack\2) &&
+            option_is_none(return_data)
+        );
+        inactive_state_unchanged(old(this), this);  
+{
+    Compare();
+    assert old(status) == ACTIVE && old(pow2_256 <= stack[0] + stack[1])  ==> (
+        status == ACTIVE &&
+        stack ^= old(1::stack\2) 
+    );
+    assert old(status) == ACTIVE && old(stack[0] + stack[1] < pow2_256)  ==> (
+        status == ACTIVE &&
+        stack ^= old(0::stack\2) 
+    );
+    assert inactive_state_unchanged(old(this), this);
+    if (hdStkZero == 0) {
+        assert old(status) == ACTIVE ==> (
+            status == ACTIVE &&
+            stack ^= old(stack\2) &&
+            old(pow2_256 <= stack [0] + stack[1]) 
+        );
+        assert inactive_state_unchanged(old(this), this);
+        INVALID();
+        assert old(status) == ACTIVE ==> (
+            status == END_INVALID &&
+            option_is_none(return_data)
+        );
+        assert inactive_state_unchanged(old(this), this);
+    }
+    assert old(status) == ACTIVE && old(pow2_256 <= stack[0] + stack[1]) ==> (
+        status == END_INVALID &&
+        option_is_none(return_data)
+    );
+    assert old(status) == ACTIVE && old(stack[0] + stack[1] < pow2_256) ==> (
+        status == ACTIVE &&
+        stack ^= old(stack\2) 
+    );
+    assert inactive_state_unchanged(old(this), this);
+}

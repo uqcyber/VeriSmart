@@ -1,0 +1,24 @@
+This is a document to outline the steps of installing Vale from source:
+
+https://github.com/project-everest/vale/blob/master/INSTALL.md (referred to as documentation) has most of what you need to install, but there will be a few hints here to help.
+
+1. (Same as documentation) Install scons and add to the path if not automatically added to path
+2. Install F#, Nuget, FsLexYacc (.NET seems to handle these)
+2. Clone Vale repository (referred to as vale/)
+3. vale/run_scons.sh line 8 has a variable for the python version vale is expecting to be installed, if you have a diffrent version from 3.6 you should update it. (I don't know if this has potential to cause other issues, but I did this and things worked for me)
+4. run scons
+4.1 if error such as csc.exe or fsc.exe not found from SConscript, Vale is trying to build but is unable to path to .NET things like the F# compiler. 
+- TRIED installing .NET latest SDK -> FAILED doesn't have fsc.exe
+- TRY https://github.com/dotnet/fsharp clone and install directly
+
+WINDOWS INSTALL ABANDONED, NEED SOLUTION TO fsc.exe
+
+LINUX:
+1. Follow instructions on Vale install page (downloading dependencies)
+2. Clone Vale
+3. vale/run_scons.sh line 8 has a variable for the python version vale is expecting to be installed, if you have a diffrent version from 3.6 you should update it. (I don't know if this has potential to cause other issues, but I did this and things worked for me)
+4. run scons
+5. Place z3 4.8.5 binary in Tools/z3 (Note that if the binary is in a subfolder, you need to add that aswell). Otherwise z3 4.8.5 can be on the PATH
+6. Place F* (whole package with ulib, not just binary) in Tools/FStar
+7. run "scons --FSTAR --FSTAR-MY-VERSION"
+8. Contact Daniel if problems occur

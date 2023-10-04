@@ -1,0 +1,171 @@
+include "../EVM.Vale.Ins_Basic.vaf"
+include "../EVM.Vale.Common.vaf"
+
+
+module EVM.Vale.Tools
+
+#verbatim{:interface}{:implementation}
+open FStar.Seq 
+open FStar.Seq.Base
+open FStar.Seq.Properties
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.Vale.Ins_Basic
+open EVM.Vale.Common
+open EVM.State
+#endverbatim
+
+#verbatim{:implementation}
+friend EVM.Vale.Decls // THIS IS CRITICAL TO REASONING!
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+procedure sstore_hdstk(inline ptr:nat256)
+// store the head of the stack in the given ptr in the storage
+    {:public}
+    reads
+        status;
+    modifies
+        stack;
+        stor;
+    requires
+        status== ACTIVE ==> (not_empty(stack) && not_full(stack));
+    ensures
+        old(status) == ACTIVE ==> (
+            stack ^= old(stack\1) &&
+            stor == old(stor[ptr := stack[0]])
+        );
+        inactive_state_unchanged(old(this), this);
+
+{
+    PUSH(ptr);
+    SSTORE();
+}
+
+procedure sstore_value(inline ptr:nat256, inline value:nat256)
+// store the given value in the given ptr in the storage
+    {:public}
+    reads
+        status;
+    modifies
+        stack;
+        stor;
+    requires
+        status == ACTIVE ==> len(stack) < 1023;
+    ensures
+        old(status) == ACTIVE ==> (
+            stack ^= old(stack) &&
+            stor == old(stor[ptr := value])
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    PUSH(value);
+    sstore_hdstk(ptr);
+}
+
+
+procedure sstore_caller(inline ptr:nat256)
+// store the caller (sender) in the given ptr in the storage
+    {:public}
+    reads
+        status;
+        sender;
+    modifies
+        stack;
+        stor;
+    requires
+        status == ACTIVE ==> len(stack) < 1023;
+    ensures
+        old(status) == ACTIVE ==> (
+            stack ^= old(stack) &&
+            stor == old(stor[ptr := sender])
+        );
+        inactive_state_unchanged(old(this), this); 
+{
+    CALLER();
+    sstore_hdstk(ptr);
+}
+
+procedure sstore_timestamp(inline ptr:nat256)
+// store the timestamp in the given ptr in the storage
+    {:public}
+    reads
+        status;
+        timeStamp;
+    modifies
+        stack;
+        stor;
+    requires
+        status == ACTIVE ==> len(stack) < 1023;
+    ensures
+        old(status) == ACTIVE ==> (
+            stack ^= old(stack) &&
+            stor == old(stor[ptr := timeStamp])
+        );
+        inactive_state_unchanged(old(this), this); 
+{
+    TIMESTAMP();
+    sstore_hdstk(ptr);
+}
+
+procedure sload_value(inline ptr:nat256)
+// load the given ptr from the storage onto the stack
+    {:public}
+    reads
+        stor;
+        status;
+    modifies
+        stack;
+    requires
+        status == ACTIVE ==> not_full(stack);
+    ensures
+        old(status) == ACTIVE ==> (
+            stack ^= old(stor[ptr]::stack)
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    PUSH(ptr);
+    SLOAD();
+}
+
+procedure Add_value(inline value:nat256)
+    {:public}
+    reads
+        status;
+    modifies
+        stack;
+    requires
+        status == ACTIVE ==> not_empty(stack) && not_full(stack);
+        status == ACTIVE ==> stack[0] + value < pow2_256;
+    ensures
+        old(status) == ACTIVE ==> (
+            stack ^= old(stack[0 := #nat256(stack[0] + value)])
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    PUSH(value);
+    ADD();
+}
+
+procedure Add_two_values(inline value1:nat256, inline value2:nat256)
+    {:public}
+    reads
+        status;
+    modifies
+        stack;
+    requires
+        status == ACTIVE ==> len(stack) < 1023;
+        status == ACTIVE ==> value1 + value2 < pow2_256;
+    ensures
+        old(status) == ACTIVE ==> (
+            stack ^= old(#nat256(value1 + value2)::stack)
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    PUSH(value1);
+    PUSH(value2);
+    ADD();
+}

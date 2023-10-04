@@ -1,0 +1,328 @@
+include "../../EVM.Vale.Common.vaf"
+include "../../EVM.Vale.Ins_Basic.vaf"
+include "EVM.Vale.Casino_safe.vaf"
+include "../../SafeMath.vaf"
+include "../EVM.Vale.Overflow.vaf"
+
+
+module EVM.Vale.Casino2
+
+#verbatim{:interface}{:implementation}
+open FStar.Seq 
+open FStar.Seq.Base
+open FStar.Seq.Properties
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.Vale.Ins_Basic
+open EVM.Vale.Tools
+open EVM.Vale.Casino_dep
+open EVM.Vale.Casino_safe
+open EVM.Vale.Common
+open EVM.Vale.Overflow
+open EVM.State
+open SafeMath
+#endverbatim
+
+#verbatim{:implementation}
+friend EVM.Vale.Decls 
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+
+#verbatim
+#restart-solver
+#push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+#endverbatim
+procedure placeBet(inline _guess:nat256)
+    lets 
+        casino_state' := 0;
+        pot' := 2;
+        operator_address' := 3;
+        wager_value' := 5;
+        wager_guess' := 6;   
+        wager_timestamp' := 7;
+        player_address' := 8;
+
+        game_available' := 1;
+        bet_placed' := 2;
+
+        receiver_address := actor;
+        new_sender_balance:nat256 := if value < bal[sender] then #nat256(bal[sender] - value) else 0;
+    reads
+        sender;
+        value;
+        timeStamp;
+        hdStkZero;
+        actor;
+    modifies
+        return_data;
+        stack; 
+        stor;
+        bal;
+        status;
+    requires
+        status == ACTIVE ==> len(stack) < 1021;
+        // Must be true after a successful call of this function
+        status == ACTIVE ==> value <= bal[sender];
+        // invariants
+        status == ACTIVE ==> ( 
+            0 <= stor[casino_state'] <= 2 &&
+            (stor[casino_state'] == bet_placed' ==> stor[wager_value'] <= stor[pot']) &&
+            stor[wager_timestamp'] <= timeStamp &&
+            actor != sender &&
+            actor != stor[operator_address'] &&
+            actor != stor[player_address'] % pow2_160 &&
+            
+            (
+                (stor[casino_state']  == bet_placed' ==> 
+                stor[pot'] + stor[wager_value'] == bal[actor]) &&
+                (stor[casino_state']  != bet_placed' ==> stor[pot'] == bal[actor])
+            )
+        );
+    ensures
+        old(status == ACTIVE && (sender != stor[operator_address'] && stor[casino_state'] == game_available' &&
+         0 < value <= stor[pot'] && bal[receiver_address] + value < pow2_256)) ==> (
+            stack ^= old(stack) &&
+            return_data == old(return_data) &&
+            status == old(status) &&
+            stor == old(stor[casino_state' := bet_placed'][wager_value' := value][wager_timestamp' := timeStamp][player_address' := sender]) &&
+            bal == old(bal[sender := new_sender_balance][receiver_address := #nat256(bal[receiver_address] + value)]) && 
+            // invariant
+            0 <= stor[casino_state'] <= 2 &&
+            (stor[casino_state'] == bet_placed' ==> stor[wager_value'] <= stor[pot']) &&
+            stor[wager_timestamp'] <= timeStamp &&
+            actor != sender &&
+            actor != stor[operator_address'] &&
+            actor != stor[player_address'] % pow2_160 &&
+            
+            (
+                (stor[casino_state']  == bet_placed' ==> 
+                stor[pot'] + stor[wager_value'] == bal[actor]) &&
+                (stor[casino_state']  != bet_placed' ==> stor[pot'] == bal[actor])
+            )
+        );
+        old(status == ACTIVE && (sender == stor[operator_address'] || stor[casino_state'] != game_available' ||
+        value <= 0 || value > stor[pot'] || bal[receiver_address] + value >= pow2_256)) ==> (
+            status == END_INVALID &&
+            stack ^= old(stack) &&
+            option_is_none(return_data)
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    SELFBALANCE();
+    CALLVALUE();
+    overflowCheck();
+
+    inState(game_available);
+    validCallValue();
+
+    CALLER();
+    sload_value(operator_address);
+    EQ();
+
+    if (hdStkZero == 0) {
+        INVALID();
+    } else {
+        placeBetSafe(_guess);
+    }
+}
+
+procedure decideBet(inline publicNumber:nat256)
+    {:public}
+    lets
+        casino_state' := 0;
+        timeout' := 1;
+        pot' := 2;
+        operator_address' := 3;
+        secret_number' := 4;
+        wager_value' := 5;
+        wager_guess' := 6;
+        wager_timestamp' := 7;
+        player_address' := 8;
+
+        idle' := 0;
+        bet_placed' := 2;
+        
+        guess := old(stor[wager_guess']) % 2;
+        secret := publicNumber % 2;
+
+        price := stor[wager_value'] * 2;
+        receiver_address := stor[player_address'] % pow2_160;
+        sender_address := actor;
+     reads
+        hdStkZero;
+        sender;
+        actor;
+        timeStamp;
+    modifies
+        return_data;
+        stack; 
+        stor;
+        bal;
+        status;
+    requires
+        status == ACTIVE ==> len(stack) < 1018; 
+        // invariants
+        status == ACTIVE ==> ( 
+            0 <= stor[casino_state'] <= 2 &&
+            (stor[casino_state'] == bet_placed' ==> stor[wager_value'] <= stor[pot']) &&
+            stor[wager_timestamp'] <= timeStamp &&
+            actor != sender &&
+            actor != stor[operator_address'] &&
+            actor != stor[player_address'] % pow2_160 &&
+            
+            (
+                (stor[casino_state']  == bet_placed' ==> 
+                stor[pot'] + stor[wager_value'] == bal[actor]) &&
+                (stor[casino_state']  != bet_placed' ==> stor[pot'] == bal[actor])
+            )
+        );
+    ensures 
+        old(status == ACTIVE && (stor[casino_state'] == bet_placed' && sender == stor[operator_address'] &&
+         Keccak.keccak(publicNumber) == stor[secret_number'] && stor[pot'] + stor[wager_value'] < pow2_256 &&
+         bal[receiver_address] + price < pow2_256)) ==> ( 
+            stack ^= old(stack) &&
+            // return_data == old(return_data) &&
+            status == old(status) &&
+            (
+                ( guess == secret ==> 
+                    stor == old(stor [pot' := #nat256(stor[pot'] - stor[wager_value'])] [wager_value' := 0] [casino_state' := idle']) &&
+                    bal ==  old(bal [sender_address := #nat256(bal[sender_address] - price)] [receiver_address := #nat256(bal[receiver_address] + price)])
+                ) &&
+                (guess != secret ==> 
+                    stor == old(stor[pot' := #nat256(stor[pot'] + stor[wager_value'])][wager_value' := 0] [casino_state' := idle'])
+                )
+            ) &&
+            // invariant
+            0 <= stor[casino_state'] <= 2 &&
+            (stor[casino_state'] == bet_placed' ==> stor[wager_value'] <= stor[pot']) &&
+            stor[wager_timestamp'] <= timeStamp &&
+            actor != sender &&
+            actor != stor[operator_address'] &&
+            actor != stor[player_address'] % pow2_160 &&
+            
+            (
+                (stor[casino_state']  == bet_placed' ==> 
+                stor[pot'] + stor[wager_value'] == bal[actor]) &&
+                (stor[casino_state']  != bet_placed' ==> stor[pot'] == bal[actor])
+            )
+        );
+        old(status == ACTIVE && (stor[casino_state'] != bet_placed' || sender != stor[operator_address'] ||
+         Keccak.keccak(publicNumber) != stor[secret_number'] || stor[pot'] + stor[wager_value'] >= pow2_256 ||
+         bal[receiver_address] + price >= pow2_256)) ==> (
+            status == END_INVALID &&
+            // stack ^= old(stack) &&
+            option_is_none(return_data)
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    sload_value(pot);
+    sload_value(wager_value);
+    overflowCheck();
+        
+    sload_value(player_address);
+    BALANCE();
+
+    sload_value(wager_value);
+    sload_value(wager_value);
+    SafeAdd();
+    assert status == ACTIVE ==> stack[0] == price;
+
+    overflowCheck();
+
+    assert status == ACTIVE ==> bal[receiver_address] + price < pow2_256;
+    assert status == ACTIVE ==> stack ^= old(stack);
+
+
+
+    inState(bet_placed);
+    byOperator();
+
+
+    PUSH(publicNumber);
+    KECCAK256();
+    sload_value(secret_number);
+    EQ();
+    
+    if (hdStkZero == 1) {
+        INVALID();
+    } else {
+        decideBetSafe(publicNumber);
+    }
+}
+
+
+#verbatim
+#restart-solver
+#push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+#endverbatim
+procedure closeCasino()
+    {:public}
+    lets 
+        casino_state' := 0;
+        pot' := 2;
+        operator_address' := 3;
+        wager_value' := 5;
+        wager_timestamp' :=7;
+        player_address' := 8;
+        owner := stor[operator_address'] % pow2_160;
+
+        idle' := 0;
+        bet_placed' := 2;
+    reads 
+        sender;
+        actor;
+        hdStkZero;
+        stor;
+        timeStamp;
+    modifies
+        stack;
+        bal;
+        status;
+        return_data;
+    requires
+        status == ACTIVE ==> len(stack) < 1022;
+        // invariants
+        status == ACTIVE ==> ( 
+            0 <= stor[casino_state'] <= 2 &&
+            (stor[casino_state'] == bet_placed' ==> stor[wager_value'] <= stor[pot']) &&
+            stor[wager_timestamp'] <= timeStamp &&
+            actor != sender &&
+            actor != stor[operator_address'] &&
+            actor != stor[player_address'] % pow2_160 &&
+            
+            (
+                (stor[casino_state']  == bet_placed' ==> 
+                stor[pot'] + stor[wager_value'] == bal[actor]) &&
+                (stor[casino_state']  != bet_placed' ==> stor[pot'] == bal[actor])
+            )
+        );
+    ensures
+        old(status) == ACTIVE && stor[casino_state'] == idle' && sender == stor[operator_address'] && bal[actor] + bal[owner] < pow2_256 ==> (
+            bal == old(bal[actor := 0] [owner := (bal[actor] + bal[owner]) % pow2_256]) &&
+            stack ^= old(stack) &&
+            status == END_SELFDESTRUCT 
+        );
+        old(status) == ACTIVE && (stor[casino_state'] != idle' || sender != stor[operator_address'] || bal[actor] + bal[owner] >= pow2_256) ==> (
+            status == END_INVALID &&
+            stack ^= old(stack) &&
+            option_is_none(return_data) 
+        );
+        
+        inactive_state_unchanged(old(this), this);
+{
+    SELFBALANCE();
+    sload_value(operator_address);
+    BALANCE();
+    overflowCheck();
+
+
+
+    inState(idle);
+    byOperator();
+    closeCasinoSafe();
+}
+

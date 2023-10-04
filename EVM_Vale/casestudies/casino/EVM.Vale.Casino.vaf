@@ -1,0 +1,14 @@
+include "EVM.Vale.Casino1.vaf"
+include "EVM.Vale.Casino2.vaf"
+include "EVM.Vale.Casino3.vaf"
+include "EVM.Vale.Casino4.vaf"
+
+
+module EVM.Vale.Casino
+
+#verbatim{:interface}
+open EVM.Vale.Casino1
+open EVM.Vale.Casino2
+open EVM.Vale.Casino3
+open EVM.Vale.Casino4
+#endverbatim

@@ -1,0 +1,37 @@
+-'match' for pattern matching
+-module xyz must be in file named xyz.fst
+-declarations at module level are called top level
+-refinement types increase expressiveness e.g.: x:nat{x>0}
+-'=' for strict equality (eqtype)
+-'==' for propositional equality
+-functions can only have propositional equality
+-propositions are undecidably boolean (?)
+-squashing a type turns it into a prop FStar.Squash
+-'admit()' same as sorry
+-MUST REMOVE all assume and admits for final proof
+-discriminators with ? after datatype constructor:
+let three_as_int' (x:three)
+  : int
+  = if One_of_three? x then 1
+    else if Two_of_three? x then 2
+    else 3
+-can omit constructors for datatypes like so:
+let only_two_as_int (x:three { not (Three_of_three? x) })
+  : int
+  = match x with
+    | One_of_three -> 1
+    | Two_of_three -> 2
+-projectors to access components of datatypes (?):
+        T?.xᵢ : y:t{T? y} -> tᵢ
+-FStar.Pervasives.Native.fst has tuples defined up arity 14, and 
+	can be constructed with a & b & c syntax for (a,b,c)
+-records are same as fsharp syntax	
+-option same as fsharp
+-'either' type has components Inl and Inr - look up docs
+-list is defined in prims
+-'decreases' explicitly provided or automated heuristic provides
+-'a<<b' a precedes b
+-lexiographical with '%[v₁; v₂; ...; vₙ] << %[u₁; u₂; ...; uₙ]'
+-mutual recursion is permissable
+-'ST' on function definition means that it can and might read or write the state
+-"noeq" will allow non-decidable equality in records

@@ -1,0 +1,119 @@
+include "../../EVM.Vale.Ins_Basic.vaf"
+include "../../EVM.Vale.Common.vaf"
+include "../EVM.Vale.Tools.vaf"
+
+module EVM.Vale.Coin_dep
+
+#verbatim{:interface}{:implementation}
+open FStar.Seq 
+open FStar.Seq.Base
+open FStar.Seq.Properties
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.Vale.Ins_Basic
+open EVM.Vale.Tools
+open EVM.Vale.Common
+open EVM.State
+#endverbatim
+
+#verbatim{:implementation}
+friend EVM.Vale.Decls 
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+#verbatim{:interface}
+let contract_address:nat256 = 0
+let minter_address:nat256 = 1
+let offset:nat256 = 7
+#endverbatim
+
+
+const contract_address:nat256 extern;
+const minter_address:nat256 extern;
+const offset:nat256 extern;
+
+/* the first 7 spots in the storage (indexes 0-6) are reserved for variables representing the blockchaing and contract other than
+the balances map.
+From index 7 onwards the storage map represents the balances map ie balances[n] will be stored at stor[n+7] 
+*/
+
+
+#verbatim
+#restart-solver
+#push-options "--initial_fuel 2 --initial_ifuel 2 --max_fuel 2 --z3rlimit 300"
+#endverbatim
+
+// procedure revertSafe(inline end_ptr:nat256)
+//     {:public}
+//     reads
+//         mem;
+//     modifies
+//         stack;
+//         status;
+//         return_data;
+//     requires
+//         status == ACTIVE ==> len(old(stack)) < 1023 && end_ptr <= length(mem);
+//     ensures
+//         old(status) == ACTIVE ==> (
+//             status == END_INVALID &&
+//             stack ^= old(stack) &&
+//             option_some_eq(return_data, slice(old(mem), 0, end_ptr))
+//         );
+//         inactive_state_unchanged(old(this), this);
+// {
+//     PUSH(end_ptr);
+//     PUSH(0);
+//     REVERT();
+// }
+
+
+procedure insufficientBalance(inline amount:nat256)
+    {:public}
+    lets
+        insufficientBalanceError' := 0;
+        offset' := 7;  
+        sender_adddress:nat256 := if sender + offset' < pow2_256 then #nat256(sender + offset') else 0;
+    reads
+        stor;
+        sender;
+    modifies
+        stack;
+        status;
+        mem;
+        return_data;
+    requires
+        status == ACTIVE ==> len(old(stack)) < 1023;
+        status == ACTIVE ==> sender + offset' < pow2_256;
+    ensures
+        old(status) == ACTIVE ==> (
+            status == END_INVALID &&
+            stack ^= old(stack) &&
+            option_some_eq(return_data, slice(mem[0 := insufficientBalanceError'][1 := amount][2 := stor[sender_adddress]], 0, 3))
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    // insufficientBalanceError
+    PUSH(0); 
+    PUSH(0);
+    MSTORE();
+
+    // Amount 
+    PUSH(amount);
+    PUSH(1);
+    MSTORE();
+
+    // Balance
+    CALLER();
+    Add_value(offset);
+    SLOAD();
+    PUSH(2);
+    MSTORE();
+
+    PUSH(3);
+    PUSH(0);
+    SafeRevert();
+    // revertSafe(3);
+}

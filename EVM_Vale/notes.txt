@@ -1,0 +1,625 @@
+LINK:
+https://source.eait.uq.edu.au/gitlist/veri-smart/
+
+21/01/2022
+USING: Vale tool - model the bytecode, has done x86 etc, hasn't been used for ETH?, build serials of layers to create intermediate language, write contract in that language, transfers down and uses dafny or F* to prove (Z3).
+1. Read papers - Skim / deep
+2. Download Vale 
+3. Start modelling Ethereum ByteCode
+
+31/01/2022
+Do not need registers or other memory other than the stack (?) Depends on depth, if processing entire system, won't a tx's input be copied into some memory? If we are just modelling the stack with a given set of instructions. Should not need to consider the outside evnvironment, might need to implement tries.
+Blockchain 1.0 -> A distributed network that offers payments services
+Blockchain 2.0 -> Smart contracts included, allows DApps (Apps on blockchain made of many interacting smart contracts)
+Blockchain 3.0 -> Implements the distributed network as DAGs which removes processing times 
+
+08/02/2022
+- Encode generic stack machine in Vale 
+- Memory and storage can be abstracted away
+- Work with x86 contents for now, remove later
+- Add to consensys slack, and look at shared repos
+
+12/02/2022
+- https://www.youtube.com/watch?v=B4-bnqZ7C2Y&t=2s for Vale desc.
+- https://www.usenix.org/sites/default/files/conference/protected-files/usenixsecurity17_slides_rane.pdf see slide 19 for good diagram of Vale 
+-EXAMPLE.vaf (&common.vaf) contain "assume false"
+-Def_s: "irreducible let va_qattr = ()" X64.Machine_s: "[@va_qattr] unfold let regs_make (f:reg -> nat64) : regs_t = ..."
+-Vale needs some definitions to be in place to understand F* universes, see Prop_s.fst
+-FStar.FunctionalExtensionality.restricted_t 
+-"code" for x86 is "precode ins ocmp"
+
+14/02/2022
+-"rsp" is not inout
+-when to use extern instead of referencing fstar
+-documenation missing attributes
+
+15/02/2022
+-implement simple push, pop, increment with stack as one int value
+-if a global is declared in vale, but is not used in a specification of a procedure IT WILL NOT TRIGGER TYPE ERRORS
+-Having a type added in a verbatim block in vale will not allow access to it for a global, however including it in an .fsti file and opening that will.
+-EXAMPLE.vaf was previously trying to adjust common.vaf, I am now wanting to strip it back more. Motivation is that the va_state is defined as a mapping on registers to ints, which does not allow for stack or stack pointer to be included. Since state must have feild "ok:bool", they have forced "va_get_ok" to always return "True", therefore it is impossible for Vale to know if the state is invalidated. I believe common.vaf is too contrived. 
+-common.vaf relationship if state and va_state is confusing, state seems to be record with fields reg, mem, etc, and va_state is mapping of registers to int
+-line 47 x64.Vale.Decls.fsti "unfold va_state = state" where state was defined in the X86.Machine_s.fst as a record type. This shows the connection between Vale and the F* constructs. If a Vale global variable x appears in a vale procedure, Vale will call va_get_x which must be connected to the F* implementation
+-Need some help understanding line 247 of X64.Decls.fsti && line 42 of X64.Decls.fst -> Seems like the invariants are unnecessary as they will always reduce to "True"
+-Predicates like va_is_src_... are hard to understand, as any signature appears to be accepted
+
+16/02/2022
+-Unable to understand why the X64.Decls va_... has different format to the other example - potentially due to all the admits and the assumes, and with actual specification it might make sense.
+-Proofs now going through even if error is in working, suspect my definition of operand_type is wrong, but unsure
+-Looking at vale generated .fst showed arguments for state update were incorrect
+
+19/02/2022
+-Converting to a system similar to the x64 structure has indeed proven to be very difficult to follow
+-Stateful monads may be required
+-update_statck is meant to return a state, but extra F* stuff of PURE and GTot complicating
+-Value in stripping out x64 instructions, and state and replacing with push, and stack?
+-Value in ignoring vale for now?
+
+23/02/2022
+-"M t r1...rn" explained pg 260 of Dependent Types and Multi-monadic Effects in F* - "M is an effect constructor, t is result type, and each ri is a term (e.g., a type or an expression)."
+-Semantics.fst and State.fsti duplicate definiitons. See eval_operand (Subtle in difference)
+
+24/02/2022
+-Line 75 of EXTRAS.fsti va_code comparability
+-Line 10 of EXTRAS.fst compared to Decls.fst with "PossiblyMonad"
+
+26/02/2022
+"
+##### Verification error
+Printing contents of obj/tools/Vale/test/EXTRAS.fst.verified.stderr #####
+tools/Vale/test/EXTRAS.fst(7,0-7,18): (Error 233) Expected the definition of va_pbool to precede va_fuel
+1 error was reported (see above)
+" -> demonstrates that some amount of guidance is given
+
+01/03/2022
+-Vale accepts definitions I have for FStar as correct for removal of "admit" throughout the F* definitions
+-"assume false" still exists at the .vaf level
+-"assume false" removed from .vaf level
+-Verification for Push completed
+-Verification for Increment completed
+
+02/03/2022
+-Stack with push and pop encoded using a list in fstar see (Stack.fst)
+-Semantics_s.fst eval_ins of Push is not correct in None type arm - currently just returning stack. Probably need error monad, or stateful monad to communicate illegal pushs
+
+04/03/2022
+-Implemented stateful monad to propogate errors out of instruction level
+-Fstar parses and Vale attempts to execute, however errors due to operand types being implemented too simply. Next step is to extend operand types at EVM.Machine_Basic level
+-Vale and fstar accept definitions and push verifies. However, due the the implementation being a list, I do not have enough expressive power to be able to reason at the vale level. To solve this, I think I need to convert to a sequence approach.
+
+ //stacks_size_cmp(old(s),s,(-1));
+ 
+08/03/2022
+-Try changing operand types
+-Try changing stateful monad to have a pop  
+ 
+10/03/2022
+Hi Chris, I actually had an email exchange with you on this project a few weeks ago. I have been trying to follow the structure laid out for the X64 architecture but instead modelling a stack machine based language.
+
+Here are the relevent contents of the Vale file (imports and other instructions omitted) where "S" is the semantics module 
+
+var ok:bool {:state ok()};
+var s:stack {:state stk()};
+
+operand_type value:nat := const;
+
+ // Limited specification for now
+procedure Add()
+    {:public}
+    {:instruction Ins(S.Add)}
+    modifies
+        s; 
+    requires 
+        size_at_least(s,2);
+    ensures
+        size_at_least(s,1);
+{
+}
+
+Here is the generated fstar from the obj/ directory
+
+//--
+//-- Add
+
+[@ "opaque_to_smt"]
+let va_code_Add () =
+  (Ins (S.Add))
+
+[@ "opaque_to_smt"]
+let va_codegen_success_Add () =
+  (va_ttrue ())
+
+[@"opaque_to_smt"]
+let va_lemma_Add va_b0 va_s0 =
+  va_reveal_opaque (`%va_code_Add) (va_code_Add ());
+  let (va_old_s:va_state) = va_s0 in
+  va_ins_lemma (Ins (S.Add)) va_s0;
+  let (va_sM, va_fM) = va_eval_ins (Ins (S.Add)) va_s0 in
+  (va_sM, va_fM)
+//--
+
+15/06/2022
+Command for attempting to run printer but it is wrong
+tools/FStar/bin/fstar.exe fstar/code/test/Test.MemcpySimpleRun.fst --include fstar/code/arch/x64simple/ --include fstar/code/arch --include fstar/specs/hardware/ --include fstar/specs/defs/ --include obj/fstar/code/test/ --include obj/fstar/code/arch/x64simple/ --include obj/fstar/specs/hardware/ --include obj/fstar/specs/defs/ --include obj/fstar/code/arch/
+
+tools/FStar/bin/fstar.exe fstar/code/test/Test.MemcpySimpleRun.fst --include fstar/code/arch/x64simple/ --include fstar/code/arch --include fstar/specs/hardware/ --include fstar/specs/defs/ --include obj/fstar/code/test/ --include obj/fstar/code/arch/x64simple/ --include obj/fstar/specs/hardware/ --include obj/fstar/specs/defs/ --include obj/fstar/code/arch/ --include tools/FStar/ulib/ml --codegen OCaml --odir ~/vale_experimental/ocamlOutput/ --no-codegen FStar.List
+
+tools/FStar/bin/fstar.exe fstar/code/test/Test.MemcpySimpleRun.fst --include fstar/code/arch/x64simple/ --include fstar/code/arch --include fstar/specs/hardware/ --include fstar/specs/defs/ --include obj/fstar/code/test/ --include obj/fstar/code/arch/x64simple/ --include obj/fstar/specs/hardware/ --include obj/fstar/specs/defs/ --include obj/fstar/code/arch/ --include tools/FStar/ulib/ml --codegen OCaml --odir ~/vale_experimental/ocamlOutput/ 
+
+
+21/06/2022
+CASE STUDIES:
+CASINO :: verismart repository
+ERC-20 :: https://docs.soliditylang.org/en/v0.8.15/introduction-to-smart-contracts.html?highlight=coin#subcurrency-example
+GOVERNANCE :: OpenZepplin github
+
+29/06/2022
+-Revert with "fail" at monad level will not be possible, F* will generate (va_get_ok va_sM) == false /\ (va_get_ok va_sM) == true which can't be avoided, so will never pass.
+-I think I need the current Vale state to be condensed into a struct, that is a member of the Vale state, and external to that have variables such as end_success and end_invalid to allow me to talk at the top level about ending statess
+-What does POP on an empty stack actually do? KEVM doesn't say, Grishenco doesn't say, Yellow paper doesn't say... Franck considers that it fails, but what is the source?
+
+2/07/2022
+-Should the constructor be allowed to run after other code? What do we want the state of the stack to be?
+-Multistep procedures cannot guarantee endstate if reversion occurs.
+
+4/07/2022
+-Need to track initial state to be the reversion state.
+
+7/7/2022
+-Need to check if more succinct way to talk about stor and mem vars at Vale level
+-Need to change enumerated values to actual implementation
+
+8/7/2022
+-Declarations file requires significant overhaul with attention to detail for memory and storage implementation with mapping - currently good until line 89
+
+18/7/2022
+-Memory and storage successfully converted to map matching EVM semantics
+-Mod instruction attempted to be added, works at F* level but error is thrown at vale level due to bounds.
+
+21/07/2022
+-Mul instruction does not always verify, need help understanding
+-Sadra needs:
+	-defining constants in F* and injecting into Vale -> Defeated, can't seem to get Vale to accept any combination
+	-operand_type for stack allowing guards of if and while to reference stack
+	
+22/07/2022 
+-Hello example makefile.include is referencing lib directory that does not exist
+
+28/07/2022
+-What if procedures at vale level take arguments that in the back end correspond to explicit pushes. Like SLOAD(4, 5) translates to PUSH(5) PUSH(4) SLOAD
+
+1/8/2022
+PPC64LE.Vale.Decls.fsti line 43 has redef of va_tl - Ask Chris for motivation. Performance?
+sudo apt-get install -y gcc-powerpc64le-linux-gnu
+sudo apt-get install qemu-user
+https://stackoverflow.com/questions/37753188/difference-between-cma-cmo-cmx-files-and-how-to-use-them-correctly-in-compi
+
+2/8/2022
+-Each procedure that is high level for a solidity function could take a parameter "msg", where msg is of type {address sender, uint256 value}. Motivation from: Functional Verification of Smart Contracts via Strong Data Integrity, pg 17, https://link.springer.com/epdf/10.1007/978-3-030-61467-6_2?sharing_token=kNpDl6tcEOVUrHVkGdVSlPe4RwlQNchNByi7wbcMAY6kXjtlZAPFGUsrriYZNkT1zdQUDAE4sUQ-SwQLsDCbkayzr5lzwkhGKdT3MKjhUdI4Pwyu1g2swUKmjWiku2SLYH6jOVGMPJ3B2uvsWqpGqH0yDSvM13QCfWBPhW5oR60%3D
+-Same paper pg 18, interesting that they consider require() failure intended behaviour, but assert() failure a problem on behalf of the programmer. Proofs cannot continue if if assert is violated, but will if require is violated.
+
+8/8/2022
+-When referencing constructed parameters, they are not saved as a value at the time of procedure entry, but are calculated dynamically 
+
+9/8/2022
+-Huge performance decrease when using Constructed operand types
+
+17/08/2022
+-Variable reffering to head of stack added, although the variable exists in the state, it is never actually read or written - all evals are a function on the stack directly. Not particular enthused about it as a solution, but it has allowed conditional logic in some form.
+
+18/08/2022
+-assert statements increase the performance of z3
+
+23/08/2022
+-Are we going to use the 'else' of if-else or just 'if'
+
+26/08/2022
+- vale/tools/Vale/src/transform.fs (line:696) this is where guards are transformed, it assumes that == must be va_cmp_eq
+
+31/08/2022
+-Try printing Grischenko et al.
+-Does {:opaque} help performance?
+-inline "ghost" parameters may enhance reasoning
+-revert for Ins_Basic_s sets a flag, but no other instructions look at the flag. Or maybe they do, but we still have preconditions for the instructions
+
+31/08/2022 Call with Sadra
+refinement type
+<==>
+procedure ADD_safe()
+	ensures NO_OVERFLOW
+{
+	DUP()
+	DUP2()  // DUPLICATE WHAT IT IS GOING TO ADD .... bytec
+	ADD()
+	GT()
+	JUMPI() // CHECK THAT RESULT, IS GREATER THAN BOTH INPUTS
+	REVERT
+	JUMPDEST
+} 
+
+... DANIEL	 |	BOTH		|             SADRA
+... BYTECODE INS | LIBRARY OF WRAPPERS  | ANOTHER LEVEL LIBRARIES >>> CASINO EXAMPLE
+								  >>> COIN
+02/09/2022
+Vale proof performance:
+    -Vale: Verifying High-Performance Cryptographic Assembly Code (pg 6. section 2.4) 
+    -A Verified, Efficient Embedding of a Verifiable Assembly Language (Section 3.2, 3.3, 3.4, 3.5, 3.6, 3.7) -> We haven't been using quick code?
+    - https://www.youtube.com/watch?v=OrnldnXh01I
+
+??/??/2022    
+-Summarise options bounded/overflow types	 	| NOT NECESSARY ANYMORE
+-Read papers						| DONE
+-Try Sadra's best of both worlds approach		| DONE
+-Print EVM grischenko encoding				| Abandoned : https://secpriv.wien/ethsemantics/   Same problems as always of nothing connects to anything to actually work
+Quick Code:
+  1. Figure out time difference 			| DONE (use obj/*.verified.stderr) 
+  2. Familiarise myself with quick codes in x64		| DONE... 
+  3. Build a quick code vc generator for EVM		| Not worth building at this stage, could be part of future work section of paper
+
+x64 quick code differences:
+  -transform function in Decls.fsti -> Doesn't seem relevant...
+  -{:quick exportOnly} -> Only difference for .vaf
+  
+  
+MEETING 06/09/2022:
+-Try defining store_bal() as a function and calling it instead of using assume statement - Sadra has solved
+-Robust tests for quick code - quick code is for future work section
+-Try to print Grischenko et al. - abandoned
+
+09/09/2022
+-"friend EVM.Vale.Decls" necessary for complex reasoning it seems
+
+12/09/2022
+-"old(status) != ACTIVE" is popping off the stack
+-Ins_Basic_s2 will need 'if' lemmas to not pop off stack if "status != ACTIVE"
+-Ins_Basic_s3 will need STOP, REVERT, INVALID to be final instructions within a branch - this might need to be encoded at the semantics level 
+
+13/09/2022
+-Consider solidity error / revert with args | DONE 
+-blocktimestamp   			    | DONE
+-selfdestruct				    | DONE Separate end state?, effects of procedure occur (not revert), benificiary gets balance (increasing if existing, creating if not)
+-keccak256 handwaving			    | implement handwaving keccak256
+-bounding				    | Implement bounded after other stuff, safe library handles roll over
+-whiles are broken
+-for coin example, should I just add logging, or at least look into it?
+-Ask about semantics change if s3 -> done
+-email grischenko about update to fstar EVM encoding -> sent and waiting on response
+-Record how I made lemmas more efficient which improved reasoning time -> For the paper - done 
+
+14/09/2022
+-option type is working at vale level, but can't be used directly, must use external function calls - (question on F* slack to Chris)
+-RETURN implemented
+-RETURN and REVERT fixed to return data, but I don't know how to specify properly
+
+27/09/2022
+-Strangely, verification is much faster with redundant skipping of state at monad level
+
+29/09/2022
+-Possessive apostrophe?
+-Are the listings brought in allowed or should I use algorithmic
+-Don't have whiles or return data currently
+-Should I spice the example up? Conditional logic, revert states if incrementing past a point?
+-Mention or even remove {:public}?
+-Is the reversion stack always the empty stack?
+
+30/09/2022
+-Need lemma: store_stor(0<-a, store_stor(1<-b, old(stor))) <==> store_stor(1<-b, store_stor(0<-a, old(stor)))
+-Move challenges after the example
+-Add figure of low level bytecode
+-Bring closing bracket and semi-colon in
+
+-structured condition branching and loops
+-KEVM 
+-dblp bibtex references
+-209 Taming Callbacks for Smart Contract Modularity
+
+-CHECK difference between caller and sender, self destruct might need to destroy other 
+-Sequence/List creation from map comprehension : Check List.fst 115, 123, 130, 140
+
+-Restriction 1 -> Doesn't totally preclude external calls
+-Should I remove the constructor?
+-Binary op for guards in vale check
+-Consider scraping the general vs specific lemmas in challenges
+
+07/10/2022
+-look into moving let definition to outer scope, and attempt to create expression for things like status == old(status) - work around
+-Uncommenting Mul makes other areas crash
+-Check push and pop at monad level ok flag
+
+-Should we strengthen the raised (Vale) instructions
+-Paper: Significant changes to Machine and Semantics (memory model in particular) do not create significant difficulties at the Vale level, as the monads really only need to accomodate the changes.
+
+14/07/2022
+-Injecting directive to restart verifier increases performance dramatically
+-Either need binding in expressions (let ... in ...) or need conditional binding (let? := )
+
+18/10/2022
+-Try using exists instead of let inside the expressions
+-Pull latex from overleaf and store in repo
+
+20/10/2022
+-Stengthening raised IL of bytecodes that reference underlying semantics will not produce procedures that with implementations that correspond to specifications.
+-Integer overflow does not trigger an error in EVM semantics, therefore we must revert the state manually if we wish to have safe math.
+-1. Raise bytecode publicly under real name          -> public safe math has public bytecode and revert implementation     -> (both accessible and accurate)
+-2. Raise bytecode non-publicly under different name -> public bytecode has non-public bytecode and revert implementation  -> (only safe accessible under misleading name)
+-3. Raise bytecode non-publicly under real name      -> public safe math has non-public bytecode and revert implementation -> (only safe accessible under accurate name)
+
+- I believe we must implement binary in order to have overflow checking. Consider a 2 bit system...
+
+ADDITION OVERFLOW FOR BOUNDED NATS:
+if result < v0 || result < v1 then overflow has occurred 
+ 11 |3
++11 |3
+------
+ 00 |0 
+ 
+ADDITION OVERFLOW FOR UNBOUNDED NATS RUNNING ON BOUNDED NAT SYSTEM:
+if 3 < result then overflow has occurred - but how does the system running check for this?
+ 11 |3
++11 |3
+------
+110 |6 <--- Not expressible on 2 bit system
+
+In the second example, even if we have the ability to reason about exceeding the MAX_INT value at the vale level, the actual running bytecode cannot do this.
+We need to eliminate the disconnect between the specification and EVM semantics. 
+
+-Furthermore I think I need to implement Dup1, Dup2, Swap1, Swap2 -> This is actually pretty simple (see ConsenSys Dafny project)
+
+24/10/2022
+-All verification issues for SafeMath library were removed when stopped using "if ... then ... else ..." paradigm for ghost variables
+-Unless binary, sub instruction is wrong and all guarantees using it don't carry to bytecode
+-I plan to remove the revert state stuff
+
+25/10/2022	
+-Fix revert
+-If we aren't using _s, can I stop maintaining it?
+-For paper, mention why we choose s2 over s1
+-Consider that if we increment between 100 - 200
+-Verified Add() different to SafeAdd()
+
+-Static Add working
+-More complicated procedures unexpectedly failing with binary, appears mod doesn't reason nicely with concrete values
+-Can't install new version of vale and have working no matter what I do
+
+-wrapping hard to verify functions in verbatim #reset-options "--z3cliopt smt.arith.nl=true" will drastically shorten the time it takes to get an unknown assertion error
+
+02/11/2022
+-Changing type of stack so invalid stack is impossible meant that all sequence functions needed to be wrapped to stop vale throwing type errors
+-Adding new instruction at semantic and vale level made it difficult to verify initially, but on second verification attempt went through smooth. Increased time by maybe a couple of seconds.
+-'binary' branch created
+
+03/11/2022
+     FUNCTIONALITY:	   |         STATUS:                 
+                       HIGH PRIORITY
+IMPLEMENT UINT256 OVERFLOW CHECKING   | a separate branch with accurate bitwise operations - safe_math and static_math working with error for concrete values. Otherwise we have impossible overflow checking on the main branch with unbounded nats                                              
+CONDITIONAL LOGIC          | in progress - Loop example is not working and hard to construct.         
+PRINTING -> VM BLOCKCHAIN  | NEED HELP! - Chris has updated Vale with some printing, however cannot run test due to OCaml error. Enquiry is on Slack but being ignored. Horatio has VM Blockchain for when it is working. Grischenko et al. fstar repo has a makefile that might help, but I couldn't get it to work either.
+                      MEDUIM PRIORITY
+INSTALL NEW VALE           | For some reason it won't work. This might help with unlocking printing, the difference might be that OCaml and F* play nice in this version - since I don't know what's going wrong I can't tell.
+                      LOW PRIORITY
+INVARIANT valid & ACTIVE   | invariant for skip when inactive completed, unsure what else we can add (valid stack moved to type system)
+EXPRESSIONS - HELPERS      | Helpers working, expressions are difficult, looking into it
+MAPPINGS OF BALANCES       | not started (already expressible as storage locations with offset, not necessary but might be nice)
+OPERAND TYPES FOR STOR ETC | paused - Stor and Mem added. Stack to come. Paused for time being as were creating problems 
+GAS			   | not started
+DEPLOYMENT VALE PROCEDURE  | Talk to Horacio about VM blockchain
+                       
+                       COMPLETED
+KECCAK HANDWAVING          | completed                       
+ADD RETURN DATA            | completed                       
+ABSTRACTION LAYERING / SCALABILITY | completed                     
+SADRA'S HYBRID APPROACH	   | completed  
+RESTRUCTURE EXAMPLES       | completed 
+CREATE SIMPLIFIED INSTR    | completed - (not handling execution ending at all, counter example 4 needs updating)                       
+REVERT 			   | completed - (counter example 3 4 needs updating)
+CONSTANTS IN VALE          | completed - temporary solution using var_name and var_name'
+EVM GLOBAL AND ENVIRONMENT | completed - caller, value, and balance accessible
+
+04/11/2022
+	NEGATIVE FEEDBACK:		|		RESPONSE: 
+REVIEWER 1:	
+Better example (DAO HACK)		| We have 2 case studies that are (weakly) completed which are far more motivating than the counter. I am interested in exploring what more we would need implement to showcase re-entrancy, however it would require inter-contract calls at the very least so would not be an insignificant increase in complexity, and given the time of the year I doubt we would get it to a standard that is sufficient before the project ends.
+REVIEWER 2:
+Work in progress, encoding incomplete 	| Maybe this is a big deal for some people, would we be rejected from a journal if we submit an encoding of a subset of EVM? The two groups that have the biggest care factor for us are Ethereum people and Vale people, and I think some people from both will be critical of what we currently offer - Ethereum people because we haven't explored the full semantics while other papers do (KEVM, Grishchenko), and Vale people because we haven't implemented any of the results from the 2019 paper (quick code) so our Vale project is outdated from the start.
+F* is limited in expressing smart contracts | Ahhhh what...? Hard to interpret such a broad statement, I don't consider this useful feedback. Given the semantics we have currently encoded, Vale (which is ultimately F* after processing) is representing smart contracts which are not contrived.   
+WHY do we target a subset of EVM, and what would be involved to accurately encode EVM | The reader may find our restriction of EVM arbitrary. I think this reviewer considers it a limitation of F* that we have encoded a subset, while it is moreso a limitation of my abilities which were very limited at the start of the year. Perhaps we should consider drawing a line in the sand of what we are targetting and justification of why everything on either side is on that side - the validity of the subset will be more compelling to the reader then. We can mention what would be required to accurately encode the full EVM from where we are.
+What role does F* play in the motivation for targetting the subset of EVM? | None at all really, unless you consider me not being familiar with F* a drawback of F* itself. I don't see that F* can't do it if utilised properly.
+Is the effort worth the pay off? 	| We will accurately detail the effort and payoff but make no prescription, the reader will need to decide if it's worth it.
+REVIEWER 4:
+Figure 1 has bytecode -> smart contract | We need to change the figure to show: F* bytecode -> Raised Vale IL bytecode -> Vale Smart Contract comprised of Raised Vale IL bytecodes
+Design-by-contract is unclear           | Add synopsis and reference for out-of-industry readers
+What safety properties?                 | Overflow protection is solid on binary branch, and working but ultimately impossible the unbounded branch
+Type restrictions might be too much, why not abandon Vale? | Our research question is exploring the use of Vale for EVM correctness since Vale targets assembly. We do not make any prescriptions that Vale ought to be used for EVM correctness or that it is the ideal tool for this. We simply analyse how well Vale can be used for the job as is, and what changes would be needed to better achieve the goal of EVM bytecode correctness.
+
+07/11/2022 (Meeting with Mark)
+-Yes we make the prescription that you ought or ought-not use Vale, yes it is useful but it comes with a lot of overhead and there are many drawbacks. Imagine we carried it on and had a large enough subset, that was verified against the 40k test cases even.
+-Safety properties -> We support functional correctness (to our subset) as one, overflow is another
+-NEXT GOAL: How does overflow effect Sadra's case studies and the counter.  
+-DONE: Demonstrate that the counter will fail with SafeAddStatic replacing Add (Construct example for talk)
+-Vale as-is does not have the ability to express as much abstraction as we would ideally like. But it is open source, so that is possible to undertake if motivated.
+-Create outline of Symposium talk. (Talk to question ratio? 10:5 min?)
+-DONE: Find reasonable hotel close Southern Cross campus
+
+Problems with W. Ahrendt et al.:
+-Solidity smart contract is poorly coded with lots of redundant code
+-As Mark noted, the Casino makes no money but this isn't an actual problem
+-Why does the casino wait for 30min? Why doesn't it just automatically resolve when someone places a bet?
+-2.1 aknowledges that transactions happen atomically, so why not make the process happen over a transaction?
+-Ultimately the above criticisms do not have any bearing on our case study, we could improve the code but nothing would really be gained.
+
+-Do we need to check whether the amount of the transfer is available before we initiate it, or will it already be checked by the transfer itself? When it is solidity transfer, we need to check the return of CALL.
+-Add upper check for overflow protection
+-Approach math and safe_math as refinement theory. The superclass has a strong precondition with default short name, 2 sub-classes (wrapping and checking), you can strengthen the postcondition and you weaken the precondition to True (to accept more cases). Superclass ADD, subclass ADD_WRAP, subclass ADD_CHECKED
+-Hacker's Delight for bit manipulation tricks
+
+14/11/2022
+PAPER REVISION:
+DONE: We are using a subset of EVM that is sufficient for typical case studies.
+DONE: Explain design by contract, Bertrand Meyer
+DONE: change picture
+DONE: saftey properties, such as functional correctness and overflow protection etc.
+DONE: casino and coin finished - couldn't fit the coin citation :(
+
+TODO: SLIDES
+https://openclipart.org/detail/15714/hard-hat
+
+15/11/2022
+MEETING: Swapping if and else changing verification outcome.
+
+PAPER NOTES FROM MEETING:
+DONE: Figure "in Vale syntax"
+DONE: -Remove "and accurate"
+DONE: -Check for backwards ticks
+
+SLIDE NOTES FROM MEETING:
+DONE: Explain flow first, then explain Vale
+-Why Vale? Vale promises 
+DONE: Delete last bullet point, add Microsoft research tool, add that it verifies cryptographic algorithms
+DONE: -Delete slide 7
+DONE: Remove stateful monad add and replace with eval_ins Add()
+REMOVED: -Add titles to boxes, AVOID OVERFLOW, ALLOW OVERFLOW, RUNTIME CHECK
+DONE: Only show slide 8 and change VALE to EVM-VALE and remove top arrow
+DONE: remove reads and modifies
+DONE: To develop a tool to automatically verify EVM bytecode
+
+https://uq-my.sharepoint.com/:p:/r/personal/uqdcumm6_uq_edu_au/_layouts/15/Doc.aspx?sourcedoc=%7B152e1b1a-bcc8-480c-868e-d0decfacc3b1%7D&action=edit&wdPreviousSession=4a8c03ed-249f-7b05-ce5d-4af372f4c8d1&cid=0146bc94-9aed-45d0-9016-1cbf3b1f7e17
+
+SLIDE NOTES (without group):
+-Should I delete the slide with just the yellow paper (7)
+
+16/11/2022
+-Adding operators to make reads and writes easier to interpret
+-Should we be making things opaque
+-More trouble with the nats being disconnected from reality causing issues. Code that will work in real life won't verify because of unbounded nats.
+-old(actor) turns nats to ints?
+
+24/11/2022
+https://github.com/dafny-lang/dafny/issues/1570 This is very similar to our issue with arthimetic overflow
+
+PRINTING:
+"$ ocamlfind opt -package fstarlib" Cannot find package fstarlib -> fixed if you "$ export OCAMLFIND=~/vale/tools/FStar/bin/"
+
+Restrict type of everything to be uint256
+
+30/11/2022
+7 * 7 = 49  | 31 * 31 = 961 (512 + 256 + 128 + 64 + 1) 
+     111    |       11111
+x    111    | x     11111
+= 110001    | = 111100001
+
+                 a + b < pow2_256
+a + b - (pow2_256 - 1) < 1
+       a + b - MAX_INT < 1
+##########################################
+		a + b < pow2_256
+            a + b - 1 < pow2_256 - 1
+            a + b - 1 < MAX_INT
+                a - 1 < MAX_INT - b
+                   a <= MAX_INT - b (a and b are arbitrary)
+  
+
+// type EVM.Machine_Basic.uint256():Type(0) {:public} := int_range(0, 0x10000000000000000000000000000000000000000000000000000000000000000);
+// type uint256():Type(0) {:public} extern;                
+-Error if refinement type in FStar references other variable in refinement
+-Have to cast as precondition is not shortening bounds
+
+-This just doesn't work
+// Injected F* lemmas and functions
+#verbatim{:interface}
+(* Allowing any type here, but Vale pulls out as (seq nat) *) 
+let lemma_cons_tail_eq (#t:Type) (x:t) (xs:seq t): Lemma 
+  (requires True)
+  (ensures Seq.equal (tail (cons x xs)) xs)
+  [SMTPat (tail (cons x xs))]
+  = ()
+
+let lemma_cns_tl_eq (x:uint256) (xs:execStack{len xs < 1024}): Lemma 
+  (requires True)
+  (ensures eql (tl (cns x xs)) xs)
+  [SMTPat (tl (cns x xs))]
+  = ()
+
+let lemma_stor_overwrite (ptr:uint256) (a:uint256) (b:uint256) (s:storage): Lemma
+  (requires True)
+  (ensures Map.equal (store_stor ptr a s) (store_stor ptr a (store_stor ptr b s))) 
+  [SMTPat (store_stor ptr a (store_stor ptr b s))]
+  = ()
+
+let lemma_mem_overwrite (ptr:nat) (a:uint256) (b:uint256) (m:memory): Lemma
+  (requires True)
+  (ensures Seq.equal (store_mem m ptr a) (store_mem (store_mem m ptr b) ptr a)) 
+  [SMTPat (store_mem (store_mem m ptr b) ptr a)]
+  = ()
+
+let lemma_bal_overwrite (ptr:uint256) (x:uint256) (y:uint256) (b:balances): Lemma
+  (requires True)
+  (ensures Map.equal (store_bal ptr x b) (store_bal ptr x (store_bal ptr y b))) 
+  [SMTPat (store_bal ptr x (store_bal ptr y b))]
+  = ()  
+
+let lemma_disjoint_stor (ptr1:uint256) (ptr2:uint256) (x:uint256) (y:uint256) (s:storage): Lemma
+  (requires ptr1 <> ptr2)
+  (ensures  (Map.equal (store_stor ptr1  x  (store_stor ptr2  y  s)) (store_stor ptr2  y  (store_stor ptr1 x s))))
+  [SMTPat (store_stor ptr1  x  (store_stor ptr2  y  s))]
+  = ()    
+
+let lemma_stor_upd_overwrite (ptr:uint256) (a:uint256) (b:uint256) (s:storage): Lemma
+  (requires True)
+  (ensures Map.equal (Map.upd s ptr a) (Map.upd (Map.upd s ptr b) ptr a)) 
+  [SMTPat (Map.upd (Map.upd s ptr b) ptr a)]
+  = ()
+
+let option_is_none  (a:option (seq uint256)) : bool = a = None   
+let option_some_eq (a:option (seq uint256)) (b:(seq uint256)) : Type0 =  
+  match a with 
+    | Some c -> (Seq.equal c b)
+    | _      -> False
+#endverbatim
+
+-DONE: Add Map.const to storage for Initialise execution 
+-DONE: Addresses to uint160
+-DONE: Add remaining overflow and memory checks
+
+17/12/2022
+0x100 = 0b000100000000 <-- Original
+0x080 = 0b000010000000 <-- Shift left / divide by two 
+
+-DO I ADD VALID ADDRESS CHECKING? 
+-I THINK I SHOULD WRITE THE PRINTER ANYWAY, AND WE JUST MENTION THAT WE COULDN'T GET FSTAR TO WORK TO ACTUALLY RUN, TEST, OR VERIFY THE PRINTER. Can say we can't get the examples in the Vale PPC to even run, let alone our project.
+-Change return type of return and revert to sequence?
+
+-maybe make the procedure ghost for the invariants? <-- Won't work as not a function. Since we want the nice syntax, abandoning the invariant function.	
+
+19/12/2022
+-DONE: Can we eliminate stor[contract_address] now that we have actor? All occurances of stor[contract_address] should be able to be replaced by actor and the code still work, would also eliminate actually storing the contract address which isn't really needed as anytime the contract needs the actor it can call ADDRESS. I might be overlooking something though.
+-DONE: Add bounds of stor[casino_state'] to invariant
+-Need to restructure repo to have tree like this: 
+
+EVM-Vale -> README.txt
+	 -> fstar/ -> *.fst
+	 	   -> *.fsti
+ 	 -> vale/ -> EVM.Vale.Common.vaf
+ 	          -> EVM.Vale.Ins*.vaf
+ 	          -> tests/ -> Test.UpDownCounter.vaf
+ 	                    -> Test.Wrapping.vaf
+ 	          -> case_studies/ -> EVM.Vale.Overflow.vaf
+ 	          	           -> EVM.Vale.Tools.vaf
+ 	          	           -> casino/ -> casino.sol (our version)
+ 	          	           	      -> EVM.Vale.Casino_dep.vaf
+ 	          	           	      -> EVM.Vale.Casino_safe.vaf
+					      -> EVM.Vale.Casino1.vaf
+					      -> EVM.Vale.Casino2.vaf	
+ 	          	           	      -> EVM.Vale.Casino.vaf <- 1 2
+ 	          	           -> coin/ -> EVM.Vale.Coin_dep.vaf
+ 	          	           	    -> EVM.Vale.Coin_safe.vaf
+ 	          	           	    -> EVM.Vale.Coin.vaf
+ 	          	           	    
+-Should I add actor != sender in InitialiseExecution
+-Remember if you swap bodies of if else it sometimes works better
+-DONE: Add SELFBALANCE instruction to replace ADDRESS();BALANCE(); in place_bet and addToPot AND check length of stack in precondition can probably be weakened
+
+-Should we write getters for all public variables? No that is handled by printer. 
+
+- Add project everest stuff for related work
+
+- Our if/JUMPI is wrong, need to make sure there is room on the stack to push the PC

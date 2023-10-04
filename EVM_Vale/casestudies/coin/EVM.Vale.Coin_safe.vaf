@@ -1,0 +1,122 @@
+include "../../EVM.Vale.Ins_Basic.vaf"
+include "../../EVM.Vale.Common.vaf"
+include "EVM.Vale.Coin_dep.vaf"
+
+module EVM.Vale.Coin_safe
+
+#verbatim{:interface}{:implementation}
+open FStar.Seq 
+open FStar.Seq.Base
+open FStar.Seq.Properties
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.Vale.Ins_Basic
+open EVM.Vale.Tools
+open EVM.Vale.Coin_dep
+open EVM.Vale.Common
+open EVM.State
+#endverbatim
+
+#verbatim{:implementation}
+friend EVM.Vale.Decls 
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+
+procedure mintSafe(inline receiver_address:address, inline amount:nat256)
+    {:public}
+    lets
+        contract_address' := 0;
+        minter_address' := 1;     
+        offset' := 7;   
+    reads
+        sender;
+        status;
+    modifies
+        stack; 
+        stor;
+    requires
+        status == ACTIVE ==> len(old(stack)) < 1022;
+        status == ACTIVE ==> sender == stor[minter_address'];
+        status == ACTIVE ==> stor[#nat256(receiver_address + offset')] + amount < pow2_256;
+    ensures
+        old(status) == ACTIVE ==> (
+            stack ^= old(stack) &&
+            stor == old(stor[#nat256(receiver_address + offset') := #nat256(stor[#nat256(receiver_address + offset')] + amount)])
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    // Load the old balance of address
+    Add_two_values(offset, receiver_address);
+    SLOAD();
+
+    // add amount
+    Add_value(amount);
+
+    // store the new balance 
+    Add_two_values(offset, receiver_address);
+    SSTORE();
+}
+
+#verbatim
+#restart-solver
+#push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+#endverbatim
+procedure sendSafe(inline receiver_address:address, inline amount:nat256)
+    {:public}
+    lets
+        contract_address' := 0;
+        minter_address' := 1;     
+        offset' := 7;  
+        sender_address:nat256 := if sender + offset' < pow2_256 then #nat256(sender + offset') else 0;
+        new_sender_balance:= if amount <= stor[sender_address] then #nat256(stor[sender_address] - amount) else 0; 
+        midpoint_stor := old(stor [sender_address := new_sender_balance]);
+    reads
+        status;
+        sender;
+        hdStkZero;
+    modifies
+        stack; 
+        stor;
+    requires
+        status == ACTIVE ==> len(stack) < 1022;
+        status == ACTIVE ==> midpoint_stor[#nat256(receiver_address + offset')] + amount < pow2_256;
+        status == ACTIVE ==> amount <= stor[sender_address];
+    ensures
+        old(status == ACTIVE) ==> (
+            stack ^= old(stack) &&
+            stor == midpoint_stor[#nat256(receiver_address + offset') := #nat256(midpoint_stor[#nat256(receiver_address + offset')] + amount)]
+        );
+        inactive_state_unchanged(old(this), this);
+{
+    PUSH(amount);
+
+    // Load the old balance of sender
+    CALLER();        
+    Add_value(offset);
+    SLOAD();
+
+    // sub amount
+    SUB();
+
+    // store the new balance of sender
+    CALLER();
+    Add_value(offset);
+    SSTORE();
+        
+
+    // Load the old balance of receiver
+    Add_two_values(offset, receiver_address);
+    SLOAD();
+
+    // add amount
+    Add_value(amount);
+
+    // store the new balance of receiver
+    Add_two_values(offset, receiver_address);
+    SSTORE();
+
+}

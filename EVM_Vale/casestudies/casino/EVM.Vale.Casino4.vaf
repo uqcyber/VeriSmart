@@ -1,0 +1,155 @@
+include "../../EVM.Vale.Common.vaf"
+include "../../EVM.Vale.Ins_Basic.vaf"
+include "EVM.Vale.Casino_safe.vaf"
+include "../../SafeMath.vaf"
+include "../EVM.Vale.Overflow.vaf"
+
+
+module EVM.Vale.Casino4
+
+#verbatim{:interface}{:implementation}
+open FStar.Seq 
+open FStar.Seq.Base
+open FStar.Seq.Properties
+open EVM.Machine_Basic
+open EVM.Vale.Decls
+open EVM.Vale.Ins_Basic
+open EVM.Vale.Tools
+open EVM.Vale.Casino_dep
+open EVM.Vale.Casino_safe
+open EVM.Vale.Common
+open EVM.Vale.Overflow
+open EVM.State
+open SafeMath
+#endverbatim
+
+#verbatim{:implementation}
+friend EVM.Vale.Decls 
+#endverbatim
+
+#token :: precedence + 
+#token ^= precedence = 
+#token \ precedence *
+
+
+
+#verbatim
+#restart-solver
+#push-options "--initial_fuel 60 --initial_ifuel 60 --max_fuel 60 --z3rlimit 300"
+#endverbatim
+
+procedure addToPot()
+    {:public}
+    lets 
+        casino_state' := 0;
+        pot' := 2;
+        operator_address' := 3;
+        wager_value' := 5;
+        wager_timestamp' := 7;
+        player_address' := 8;
+
+        bet_placed' := 2;
+
+        receiver_address := actor;
+        new_sender_balance:nat256 := if value < bal[sender] then #nat256(bal[sender] - value) else 0;
+    reads
+        hdStkZero;
+        sender;
+        value;
+        actor;
+        timeStamp;
+    modifies
+        return_data;
+        stack; 
+        stor;
+        bal;
+        status;
+    requires
+        status == ACTIVE ==> len(stack) < 1022;
+
+        // Must be true after a successful call of this function
+        status == ACTIVE ==> value <= bal[sender];
+        // invariants
+        status == ACTIVE ==> ( 
+            0 <= stor[casino_state'] <= 2 &&
+            (stor[casino_state'] == bet_placed' ==> stor[wager_value'] <= stor[pot']) &&
+            stor[wager_timestamp'] <= timeStamp &&
+            actor != sender &&
+            actor != stor[operator_address'] &&
+            actor != stor[player_address'] % pow2_160 &&
+            
+            (
+                (stor[casino_state']  == bet_placed' ==> 
+                stor[pot'] + stor[wager_value'] == bal[actor]) &&
+                (stor[casino_state']  != bet_placed' ==> stor[pot'] == bal[actor])
+            )
+        );
+    ensures
+        old(status == ACTIVE && (sender == stor[operator_address'] && value > 0 &&
+         bal[receiver_address] + value < pow2_256 && stor[pot'] + value < pow2_256)) ==> ( 
+            stack ^= old(stack) &&
+            return_data == old(return_data) &&
+            status == old(status) &&
+            stor == old(stor[pot' := #nat256(stor[pot'] + value)]) &&
+            bal == old(bal[sender := new_sender_balance][receiver_address := #nat256(bal[receiver_address] + value)]) &&
+            // invariant
+            0 <= stor[casino_state'] <= 2 &&
+            (stor[casino_state'] == bet_placed' ==> stor[wager_value'] <= stor[pot']) &&
+            stor[wager_timestamp'] <= timeStamp &&
+            actor != sender &&
+            actor != stor[operator_address'] &&
+            actor != stor[player_address'] % pow2_160 &&
+            
+            (
+                (stor[casino_state']  == bet_placed' ==> 
+                stor[pot'] + stor[wager_value'] == bal[actor]) &&
+                (stor[casino_state']  != bet_placed' ==> stor[pot'] == bal[actor])
+            )
+        );
+        old(status == ACTIVE && (sender != stor[operator_address'] || value <= 0 ||
+         bal[receiver_address] + value >= pow2_256 || stor[pot'] + value >= pow2_256)) ==> (
+            status == END_INVALID &&
+            stack ^= old(stack) &&
+            option_is_none(return_data)
+        ); 
+        inactive_state_unchanged(old(this), this);
+{
+    lemma_cons_tail_eq();
+
+    SELFBALANCE();  
+    CALLVALUE(); 
+    overflowCheck();
+    assert status == ACTIVE ==> stack ^= old(stack);
+    assert status == ACTIVE ==> old(bal[receiver_address] + value < pow2_256);
+
+    sload_value(pot);
+    CALLVALUE(); 
+    overflowCheck();
+
+    assert status == ACTIVE ==> old(bal[receiver_address] + value < pow2_256);
+    assert status == ACTIVE ==> old(stor[pot'] + value < pow2_256);
+    assert status == ACTIVE ==> stack ^= old(stack);
+
+    byOperator();
+    assert status == ACTIVE ==> old(bal[receiver_address] + value < pow2_256);
+    assert status == ACTIVE ==> old(stor[pot'] + value < pow2_256);
+    assert status == ACTIVE ==> old(sender == stor[operator_address']);
+    assert status == ACTIVE ==> stack ^= old(stack);
+
+    PUSH(0);
+    CALLVALUE(); 
+    GT();
+    
+    if (hdStkZero == 1) {
+        INVALID();
+    }
+
+    assert status == ACTIVE ==> old(bal[receiver_address] + value < pow2_256);
+    assert status == ACTIVE ==> old(stor[pot'] + value < pow2_256);
+    assert status == ACTIVE ==> old(sender == stor[operator_address']);
+    assert status == ACTIVE ==> old(value > 0);
+
+    assert status == ACTIVE ==> stack ^= old(stack);
+
+    addToPotSafe();
+}
